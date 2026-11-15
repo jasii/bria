@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 import copy
 from datetime import UTC, datetime
@@ -17,13 +18,20 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.util.ssl import SSL_ALPN_HTTP11, SSLCipherList, create_client_context
+from homeassistant.util.ssl import (
+    SSL_ALPN_HTTP11,
+    SSLCipherList,
+    create_client_context,
+    get_default_no_verify_context,
+)
 
 from .api import (
     BriaBadRequest,
     BriaClient,
     BriaConnectionError,
     BriaError,
+    BriaNotReady,
+    BriaTimeout,
     BriaTLSError,
     BriaResponse,
     xml_el,
@@ -60,10 +68,66 @@ def build_verify_context() -> ssl.SSLContext:
     ctx.load_verify_locations(cafile=str(INTERMEDIATE_CA))
     return ctx
 
+
+_VERIFY_CONTEXT: ssl.SSLContext | None = None
+
+
+def split_address(address: str, default_port: int) -> tuple[str, int]:
+    """``host``, ``host:port`` or ``[v6]:port`` -> (host, port). Bare IPv6 has no port."""
+    if address.startswith("["):
+        host, _, rest = address[1:].partition("]")
+        return host, int(rest[1:]) if rest.startswith(":") else default_port
+    if address.count(":") == 1:
+        host, port = address.split(":")
+        return host, int(port)
+    return address, default_port
+
+
+async def async_ssl_context(hass: HomeAssistant, verify: bool) -> ssl.SSLContext:
+    """Verifying context (built once, off the event loop) or HA's no-verify context."""
+    global _VERIFY_CONTEXT  # noqa: PLW0603 - immutable once built, shared by all entries
+    if not verify:
+        return get_default_no_verify_context()
+    if _VERIFY_CONTEXT is None:
+        _VERIFY_CONTEXT = await hass.async_add_executor_job(build_verify_context)
+    return _VERIFY_CONTEXT
+
+
+async def async_test_address(
+    hass: HomeAssistant, address: str, port: int, ssl_context: ssl.SSLContext | None
+) -> str | None:
+    """Connect once and ask for systemInformation. Returns an error key or None.
+
+    ``not_authorized`` means the socket opened but Bria did not answer, which is
+    what an unanswered Allow Access prompt looks like.
+    """
+    client = BriaClient(async_get_clientsession(hass))
+    host, port = split_address(address, port)
+    try:
+        await client.connect(host, port, ssl_context=ssl_context, timeout=TEST_TIMEOUT)
+    except BriaTLSError:
+        return "ssl_error"
+    except BriaConnectionError:
+        return "cannot_connect"
+    runner = asyncio.create_task(client.run())
+    try:
+        await client.status(STATUS_SYSTEM_INFO, timeout=TEST_TIMEOUT)
+    except (BriaTimeout, BriaNotReady):
+        return "not_authorized"
+    except BriaError:
+        return "cannot_connect"
+    finally:
+        await client.close()
+        runner.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner
+    return None
+
 BACKOFF_INITIAL = 5.0
 BACKOFF_MAX = 60.0
 STABLE_CONNECTION = 30.0  # a connection that lasted this long resets the backoff
 HISTORY_COUNT = 50
+TEST_TIMEOUT = 5.0
 
 _DEFAULT_DATA: dict[str, Any] = {
     "connected": False,
@@ -325,13 +389,14 @@ class BriaMachine:
         """Try each address in order; return the one that connected."""
         ctx = await self._ssl_context()
         for address in self.addresses:
+            host, port = split_address(address, self.port)
             try:
-                await self.client.connect(address, self.port, ssl_context=ctx)
+                await self.client.connect(host, port, ssl_context=ctx)
             except BriaTLSError as err:
                 self._log_failure("TLS verification failed for Bria %s at %s: %s", self.name, address, err)
                 self._raise_tls_issue(address, str(err))
             except BriaConnectionError as err:
-                self._log_failure("Cannot connect to Bria %s at %s:%s: %s", self.name, address, self.port, err)
+                self._log_failure("Cannot connect to Bria %s at %s:%s: %s", self.name, host, port, err)
             else:
                 return address
         return None

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from .machine import _default_data
+from .machine import _default_data, split_address
 
 _STATE_RANK = {"ringing": 0, "connected": 1, "connecting": 2}
 
@@ -96,7 +96,7 @@ def merged_accounts(machines: list[MachineLike], key: str) -> list[dict[str, Any
 def _via(address: str | None) -> str | None:
     if not address:
         return None
-    host = address.lower().rstrip(".")
+    host = split_address(address, 0)[0].lower().rstrip(".")
     if host.endswith(".ts.net"):
         return "tailscale"
     parts = host.split(".")

@@ -81,3 +81,11 @@ SAFETY_DEFAULTS: dict[str, bool | str] = {
 
 MAX_NUMBER_LENGTH = 64
 MAX_PATTERN_LENGTH = 256
+
+# Machines (config entry version 3)
+CONF_MACHINES = "machines"
+CONF_ADDRESSES = "addresses"
+CONF_NAME = "name"
+CONF_MACHINE_ID = "id"
+MAX_MACHINES = 4
+MAX_ADDRESSES = 4

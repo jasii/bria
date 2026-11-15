@@ -2,11 +2,19 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Bria",
-        "description": "Enter the IP address (or hostname) of the machine running Bria and the API port (default 9002).\n\n- **Same machine as HA**: leave host as `cpclientapi.softphone.com`.\n- **Different machine** (e.g. `192.168.1.50`): enter that machine's IP. The integration handles the TLS certificate correctly automatically.\n\nAfter the first connection, open Bria → Notifications tab → **Allow Access**.",
+        "title": "Add Bria",
+        "description": "Add the first computer that runs Bria. You can add more computers (for example a laptop) later under Configure; Home Assistant connects to all of them at once and combines them into one device.\n\n{results}",
         "data": {
-          "host": "Host",
+          "name": "Computer name",
+          "addresses": "Addresses",
+          "save_anyway": "Save even though no address answered",
           "port": "Port"
+        },
+        "data_description": {
+          "name": "For example Desktop or Laptop. Shown on the computer's diagnostic device and in service results.",
+          "addresses": "One per line, in order of preference: the computer's LAN address first, then its Tailscale address (100.x.y.z or name.ts.net). They must all reach the same computer.",
+          "save_anyway": "Use this when the computer is off or asleep right now. Home Assistant keeps trying in the background.",
+          "port": "Bria Desktop API port, 9002 unless changed in Bria."
         }
       },
       "sensors": {
@@ -21,17 +29,90 @@
           "group_call_options": "Call Options (anonymous, auto-answer, call waiting, letters-to-numbers)",
           "group_missed_voicemail": "Missed Calls & Voicemail (counts)"
         }
+      },
+      "reconfigure": {
+        "title": "Connection settings",
+        "description": "Settings shared by every computer. Add, edit or remove computers under Configure.",
+        "data": {
+          "port": "Port",
+          "verify_ssl": "Verify Bria's certificate"
+        },
+        "data_description": {
+          "verify_ssl": "Leave on. Turn off only if Bria's certificate has expired and port 9002 is firewalled to Home Assistant's addresses."
+        }
       }
     },
+    "error": {
+      "cannot_connect": "No address answered on the Bria API port. Check that Bria is running and that the firewall allows Home Assistant.",
+      "ssl_error": "Bria's certificate could not be verified.",
+      "not_authorized": "Bria accepted the connection but did not answer. Click Allow Access in Bria's Notifications tab, then submit again.",
+      "invalid_address": "One of the addresses is not a valid IP address or hostname (leave out the port).",
+      "no_addresses": "Enter at least one address.",
+      "too_many_addresses": "Enter at most 4 addresses per computer.",
+      "address_in_use": "One of these addresses is already used by another computer or Bria entry.",
+      "name_in_use": "Another computer already has this name.",
+      "name_required": "Enter a name."
+    },
     "abort": {
-      "already_configured": "Bria is already configured."
+      "already_configured": "This Bria is already configured.",
+      "reconfigure_successful": "Connection settings saved."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Choose Sensor Groups",
-        "description": "Enable or disable sensor groups. The next page has the safety options.",
+        "title": "Bria",
+        "menu_options": {
+          "add_machine": "Add a computer",
+          "edit_machine": "Edit a computer",
+          "remove_machine": "Remove a computer",
+          "groups": "Sensor groups",
+          "safety": "Safety"
+        }
+      },
+      "add_machine": {
+        "title": "Add a computer",
+        "description": "Home Assistant stays connected to every computer and combines them: On Call is on if any computer is on a call, and actions go to the computer you are using.\n\n{results}",
+        "data": {
+          "name": "Computer name",
+          "addresses": "Addresses",
+          "save_anyway": "Save even though no address answered"
+        },
+        "data_description": {
+          "name": "For example Desktop or Laptop. Shown on the computer's diagnostic device and in service results.",
+          "addresses": "One per line, in order of preference: the computer's LAN address first, then its Tailscale address (100.x.y.z or name.ts.net). They must all reach the same computer.",
+          "save_anyway": "Use this when the computer is off or asleep right now. Home Assistant keeps trying in the background."
+        }
+      },
+      "edit_machine": {
+        "title": "Edit a computer",
+        "data": {
+          "machine": "Computer"
+        }
+      },
+      "edit_machine_details": {
+        "title": "Edit a computer",
+        "description": "{results}",
+        "data": {
+          "name": "Computer name",
+          "addresses": "Addresses",
+          "save_anyway": "Save even though no address answered"
+        },
+        "data_description": {
+          "name": "For example Desktop or Laptop. Shown on the computer's diagnostic device and in service results.",
+          "addresses": "One per line, in order of preference: the computer's LAN address first, then its Tailscale address (100.x.y.z or name.ts.net). They must all reach the same computer.",
+          "save_anyway": "Use this when the computer is off or asleep right now. Home Assistant keeps trying in the background."
+        }
+      },
+      "remove_machine": {
+        "title": "Remove a computer",
+        "data": {
+          "machine": "Computer"
+        }
+      },
+      "groups": {
+        "title": "Sensor groups",
+        "description": "Enable or disable sensor groups.",
         "data": {
           "group_presence": "Presence (status, presence text, presence select)",
           "group_call_details": "Call Details (caller number, caller name, call on hold)",
@@ -60,7 +141,20 @@
     },
     "error": {
       "invalid_pattern": "This is not a valid regular expression.",
-      "pattern_too_long": "The pattern is too long (256 characters at most)."
+      "pattern_too_long": "The pattern is too long (256 characters at most).",
+      "cannot_connect": "No address answered on the Bria API port. Check that Bria is running and that the firewall allows Home Assistant.",
+      "ssl_error": "Bria's certificate could not be verified.",
+      "not_authorized": "Bria accepted the connection but did not answer. Click Allow Access in Bria's Notifications tab, then submit again.",
+      "invalid_address": "One of the addresses is not a valid IP address or hostname (leave out the port).",
+      "no_addresses": "Enter at least one address.",
+      "too_many_addresses": "Enter at most 4 addresses per computer.",
+      "address_in_use": "One of these addresses is already used by another computer or Bria entry.",
+      "name_in_use": "Another computer already has this name.",
+      "name_required": "Enter a name."
+    },
+    "abort": {
+      "last_machine": "Bria needs at least one computer. Remove the integration instead.",
+      "too_many_machines": "At most 4 computers are supported."
     }
   },
   "entity": {

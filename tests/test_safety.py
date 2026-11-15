@@ -100,7 +100,7 @@ async def test_options_flow_safety_step(hass: HomeAssistant, fake_bria: FakeBria
     entry = setup_bria
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "init"
-    result = await hass.config_entries.options.async_configure(result["flow_id"], dict(entry.options))
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "safety"})
     assert result["step_id"] == "safety"
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_DIAL_ALLOW_PATTERN: "(unclosed"}
@@ -117,4 +117,4 @@ async def test_options_flow_safety_step(hass: HomeAssistant, fake_bria: FakeBria
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_DIAL_ALLOW_PATTERN] == r"\+?1\d{10}"
-    assert entry.options["group_audio"] is True
+    assert entry.options.get("group_audio", True) is True

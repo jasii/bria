@@ -10,10 +10,19 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.util.ssl import get_default_no_verify_context
 
-from .const import CONF_HOST, CONF_PORT, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, DOMAIN
-from .machine import BACKOFF_INITIAL, BACKOFF_MAX, BriaMachine, build_verify_context
+from .const import (
+    CONF_ADDRESSES,
+    CONF_MACHINE_ID,
+    CONF_MACHINES,
+    CONF_NAME,
+    CONF_PORT,
+    CONF_VERIFY_SSL,
+    DEFAULT_PORT,
+    DEFAULT_VERIFY_SSL,
+    DOMAIN,
+)
+from .machine import BACKOFF_INITIAL, BACKOFF_MAX, BriaMachine, async_ssl_context
 from .merge import merge
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,18 +37,19 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None, config_entry=entry)
         self.entry = entry
         self.verify_ssl: bool = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
-        self._verify_context: ssl.SSLContext | None = None
+        port = entry.data.get(CONF_PORT, DEFAULT_PORT)
         self.machines: list[BriaMachine] = [
             BriaMachine(
                 hass,
                 entry,
-                machine_id="main",
-                name=entry.title,
-                addresses=[entry.data[CONF_HOST]],
-                port=entry.data[CONF_PORT],
+                machine_id=m[CONF_MACHINE_ID],
+                name=m[CONF_NAME],
+                addresses=list(m[CONF_ADDRESSES]),
+                port=port,
                 ssl_context=self._ssl_context,
                 on_update=self._machine_updated,
             )
+            for m in entry.data[CONF_MACHINES]
         ]
         self.data = merge(self.machines)
 
@@ -48,11 +58,7 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _ssl_context(self) -> ssl.SSLContext | None:
         """TLS context shared by all machines. Tests patch this to return None (plain ws)."""
-        if not self.verify_ssl:
-            return get_default_no_verify_context()
-        if self._verify_context is None:
-            self._verify_context = await self.hass.async_add_executor_job(build_verify_context)
-        return self._verify_context
+        return await async_ssl_context(self.hass, self.verify_ssl)
 
     # -- lifecycle -----------------------------------------------------------
 

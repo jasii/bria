@@ -11,7 +11,19 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.service import async_register_admin_service
 
-from .const import CONF_HOST, DOMAIN, PRESENCE_OPTIONS
+from .const import (
+    CONF_ADDRESSES,
+    CONF_HOST,
+    CONF_MACHINE_ID,
+    CONF_MACHINES,
+    CONF_NAME,
+    CONF_PORT,
+    CONF_VERIFY_SSL,
+    DEFAULT_PORT,
+    DEFAULT_VERIFY_SSL,
+    DOMAIN,
+    PRESENCE_OPTIONS,
+)
 from .coordinator import BriaCoordinator
 from .entity import find_device
 from .safety import check_app_control, check_dial, check_recording
@@ -84,8 +96,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: BriaConfigEntry) -> boo
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """v1 -> v2: key the device by entry ID instead of host, keeping its entities."""
-    if entry.version > 2:
+    """v1 -> v2: device keyed by entry ID. v2 -> v3: list of machines."""
+    if entry.version > 3:
         return False  # downgrade from a future version
     if entry.version == 1:
         if old := find_device(hass, entry.entry_id, entry.data[CONF_HOST]):
@@ -93,7 +105,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 old.id, new_identifiers={(DOMAIN, entry.entry_id)}
             )
         hass.config_entries.async_update_entry(entry, version=2)
-        _LOGGER.debug("Migrated Bria entry %s to version 2", entry.entry_id)
+    if entry.version == 2:
+        data = {
+            CONF_PORT: entry.data.get(CONF_PORT, DEFAULT_PORT),
+            CONF_VERIFY_SSL: entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+            CONF_MACHINES: [
+                {CONF_MACHINE_ID: "main", CONF_NAME: "Bria", CONF_ADDRESSES: [entry.data[CONF_HOST]]}
+            ],
+        }
+        hass.config_entries.async_update_entry(entry, data=data, version=3)
+    _LOGGER.debug("Bria entry %s is at version %s", entry.entry_id, entry.version)
     return True
 
 

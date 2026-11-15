@@ -139,7 +139,8 @@ async def test_migrate_v1_keeps_device_and_entities(
     await asyncio.wait_for(fake_bria.connected.wait(), timeout=5)
     await hass.async_block_till_done()
 
-    assert entry.version == 2
+    assert entry.version == 3
+    assert entry.data["machines"][0]["addresses"] == ["127.0.0.1"]
     moved = find_device(hass, entry.entry_id, entry.entry_id)
     assert moved is not None and moved.id == old.id
     assert find_device(hass, entry.entry_id, "127.0.0.1") is None
