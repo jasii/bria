@@ -1,0 +1,104 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "on_call": {
+        "default": "mdi:phone-hangup",
+        "state": {
+          "on": "mdi:phone-in-talk"
+        }
+      },
+      "authenticated": {
+        "default": "mdi:account-check"
+      },
+      "call_on_hold": {
+        "default": "mdi:phone-paused"
+      },
+      "screen_sharing": {
+        "default": "mdi:monitor-share"
+      },
+      "connected": {
+        "default": "mdi:lan-disconnect",
+        "state": {
+          "on": "mdi:lan-connect"
+        }
+      },
+      "phone_ready": {
+        "default": "mdi:phone-check"
+      },
+      "can_make_call": {
+        "default": "mdi:phone-plus"
+      }
+    },
+    "number": {
+      "speaker_volume": {
+        "default": "mdi:volume-high"
+      },
+      "microphone_volume": {
+        "default": "mdi:microphone"
+      }
+    },
+    "select": {
+      "presence_status": {
+        "default": "mdi:account-circle"
+      }
+    },
+    "sensor": {
+      "presence_text": {
+        "default": "mdi:message-text"
+      },
+      "active_call_count": {
+        "default": "mdi:phone-in-talk"
+      },
+      "caller_number": {
+        "default": "mdi:phone"
+      },
+      "caller_name": {
+        "default": "mdi:account"
+      },
+      "call_history": {
+        "default": "mdi:history"
+      },
+      "screen_share_status": {
+        "default": "mdi:monitor-share"
+      },
+      "phone_account_status": {
+        "default": "mdi:phone-settings"
+      },
+      "bria_version": {
+        "default": "mdi:information"
+      },
+      "missed_call_count": {
+        "default": "mdi:phone-missed"
+      },
+      "voicemail_count": {
+        "default": "mdi:voicemail"
+      },
+      "account_count": {
+        "default": "mdi:account-multiple"
+      }
+    },
+    "switch": {
+      "muted": {
+        "default": "mdi:microphone-off"
+      },
+      "speaker_muted": {
+        "default": "mdi:volume-off"
+      },
+      "speaker_mode": {
+        "default": "mdi:volume-high"
+      },
+      "anonymous_calling": {
+        "default": "mdi:incognito"
+      },
+      "auto_answer": {
+        "default": "mdi:phone-in-talk-outline"
+      },
+      "call_waiting": {
+        "default": "mdi:phone-ring"
+      },
+      "letters_to_numbers": {
+        "default": "mdi:numeric"
+      }
+    }
+  }
+}

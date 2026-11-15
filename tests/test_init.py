@@ -76,10 +76,7 @@ async def test_audio_devices_reply_type_is_ignored(
         )
     )
     await fake_bria.push_event("audioDevices")
-    coordinator = setup_bria.runtime_data if hasattr(setup_bria, "runtime_data") else None
-    from custom_components.bria.const import DOMAIN
-
-    coordinator = coordinator or hass.data[DOMAIN][setup_bria.entry_id]
+    coordinator = setup_bria.runtime_data
     await _until(hass, lambda: coordinator.data["audio_devices"])
     assert coordinator.data["audio_devices"][0] == {
         "name": "Head & Set",
@@ -93,9 +90,7 @@ async def test_audio_devices_reply_type_is_ignored(
 async def test_screenshare_400_marks_unsupported(
     hass: HomeAssistant, fake_bria: FakeBria, setup_bria
 ) -> None:
-    from custom_components.bria.const import DOMAIN
-
-    coordinator = hass.data[DOMAIN][setup_bria.entry_id]
+    coordinator = setup_bria.runtime_data
     # Default fake reply for screenShare is an empty 200; make it 400 and reconnect.
     fake_bria.status_responses["screenShare"] = Reply(400)
     await fake_bria.drop_clients()
@@ -107,9 +102,7 @@ async def test_screenshare_400_marks_unsupported(
 async def test_accounts_removed_when_list_empty(
     hass: HomeAssistant, fake_bria: FakeBria, setup_bria
 ) -> None:
-    from custom_components.bria.const import DOMAIN
-
-    coordinator = hass.data[DOMAIN][setup_bria.entry_id]
+    coordinator = setup_bria.runtime_data
     fake_bria.status_responses["account"] = Reply(
         body=(
             '<status type="account"><account><accountName>A</accountName><accountId>1</accountId>'

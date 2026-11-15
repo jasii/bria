@@ -8,20 +8,23 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 
-from .const import DOMAIN, PRESENCE_OPTIONS
+from .const import CONF_HOST, DOMAIN, PRESENCE_OPTIONS
 from .coordinator import BriaCoordinator
+from .entity import find_device
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.SWITCH, Platform.NUMBER]
 
+type BriaConfigEntry = ConfigEntry[BriaCoordinator]
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+
+async def async_setup_entry(hass: HomeAssistant, entry: BriaConfigEntry) -> bool:
     """Set up Bria VoIP from a config entry."""
     coordinator = BriaCoordinator(hass, entry)
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
 
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -36,17 +39,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: BriaConfigEntry) -> bool:
     """Unload a Bria config entry."""
-    coordinator: BriaCoordinator = hass.data[DOMAIN][entry.entry_id]
-    await coordinator.async_stop()
-
+    await entry.runtime_data.async_stop()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
 
     # Remove services when the last entry is removed
-    if not hass.data[DOMAIN]:
+    if not [e for e in hass.config_entries.async_loaded_entries(DOMAIN) if e.entry_id != entry.entry_id]:
         for svc in (
             "set_presence",
             "place_call",
@@ -82,6 +81,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """v1 -> v2: key the device by entry ID instead of host, keeping its entities."""
+    if entry.version > 2:
+        return False  # downgrade from a future version
+    if entry.version == 1:
+        if old := find_device(hass, entry.entry_id, entry.data[CONF_HOST]):
+            dr.async_get(hass).async_update_device(
+                old.id, new_identifiers={(DOMAIN, entry.entry_id)}
+            )
+        hass.config_entries.async_update_entry(entry, version=2)
+        _LOGGER.debug("Migrated Bria entry %s to version 2", entry.entry_id)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Options update listener
 # ---------------------------------------------------------------------------
@@ -100,8 +113,8 @@ async def _async_reload_on_options_update(
 
 
 def _get_coordinator(hass: HomeAssistant) -> BriaCoordinator | None:
-    entries = hass.data.get(DOMAIN, {})
-    return next(iter(entries.values()), None)
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    return entries[0].runtime_data if entries else None
 
 
 def _first_call_id(coordinator: BriaCoordinator, override: str | None) -> str | None:

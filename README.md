@@ -28,6 +28,12 @@ Bria must accept connections on TCP 9002 from Home Assistant. Allow only Home As
 New-NetFirewallRule -DisplayName "Bria API from HA" -Direction Inbound -Protocol TCP -LocalPort 9002 -RemoteAddress <ha-lan-ip>,<ha-tailscale-ip> -Action Allow
 ```
 
+**Why this matters:** once access is allowed, Bria gives every client full control (place calls, change presence, sign out, quit) with no per-client check. If Bria is set to allow API access without prompting, any device that can reach TCP 9002 has that control, so the firewall rule is the only thing standing between your network and your phone line.
+
+## Upgrading from 1.x
+
+The device is now identified by the config entry instead of the Bria machine's address, so the integration can follow Bria across addresses. Existing devices, entity IDs and history are moved over automatically on first start. Entities now show as unavailable while Bria is disconnected. The Call History sensor's state is now the time of the most recent call; the number of calls is in its `count` attribute. Screen share is off by default for new installs, because Bria 6.8 rejects screen share status requests.
+
 ## Development
 
 ```bash

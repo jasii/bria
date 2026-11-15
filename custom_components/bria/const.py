@@ -49,5 +49,19 @@ SENSOR_GROUPS = (
     GROUP_MISSED_VOICEMAIL,
 )
 
-# Presence options exposed in the select entity
+# Groups are on by default except screen share, which Bria 6.8 rejects with 400.
+GROUP_DEFAULTS = {group: group != GROUP_SCREEN_SHARE for group in SENSOR_GROUPS}
+
+# Presence statuses a user can normally set (fallback when supportedPresence is empty).
 PRESENCE_OPTIONS = ["available", "away", "busy", "doNotDisturb", "offline"]
+# Every status Bria can report (guide p. 53); some are set by Bria itself.
+PRESENCE_STATES = (
+    "available",
+    "away",
+    "busy",
+    "doNotDisturb",
+    "idle",
+    "notAvailableForCalls",
+    "offline",
+    "onThePhone",
+)

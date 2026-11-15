@@ -12,13 +12,8 @@ from .const import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     DOMAIN,
-    GROUP_AUDIO,
-    GROUP_CALL_DETAILS,
-    GROUP_CALL_OPTIONS,
-    GROUP_MISSED_VOICEMAIL,
-    GROUP_PHONE_INFO,
-    GROUP_PRESENCE,
-    GROUP_SCREEN_SHARE,
+    GROUP_DEFAULTS,
+    SENSOR_GROUPS,
 )
 
 _CONNECTION_SCHEMA = vol.Schema(
@@ -36,13 +31,8 @@ def _sensor_schema(defaults: dict | None = None) -> vol.Schema:
     d = defaults or {}
     return vol.Schema(
         {
-            vol.Optional(GROUP_PRESENCE, default=d.get(GROUP_PRESENCE, True)): bool,
-            vol.Optional(GROUP_CALL_DETAILS, default=d.get(GROUP_CALL_DETAILS, True)): bool,
-            vol.Optional(GROUP_AUDIO, default=d.get(GROUP_AUDIO, True)): bool,
-            vol.Optional(GROUP_SCREEN_SHARE, default=d.get(GROUP_SCREEN_SHARE, True)): bool,
-            vol.Optional(GROUP_PHONE_INFO, default=d.get(GROUP_PHONE_INFO, True)): bool,
-            vol.Optional(GROUP_CALL_OPTIONS, default=d.get(GROUP_CALL_OPTIONS, True)): bool,
-            vol.Optional(GROUP_MISSED_VOICEMAIL, default=d.get(GROUP_MISSED_VOICEMAIL, True)): bool,
+            vol.Optional(group, default=d.get(group, GROUP_DEFAULTS[group])): bool
+            for group in SENSOR_GROUPS
         }
     )
 
@@ -50,7 +40,7 @@ def _sensor_schema(defaults: dict | None = None) -> vol.Schema:
 class BriaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the UI config flow for Bria VoIP."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
         self._connection_data: dict = {}

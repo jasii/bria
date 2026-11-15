@@ -142,7 +142,10 @@
           "away": "Away",
           "busy": "Busy",
           "doNotDisturb": "Do Not Disturb",
-          "offline": "Offline"
+          "offline": "Offline",
+          "idle": "Idle",
+          "notAvailableForCalls": "Not Available for Calls",
+          "onThePhone": "On the Phone"
         }
       }
     }
@@ -151,6 +154,11 @@
     "tls_verification_failed": {
       "title": "Bria certificate could not be verified",
       "description": "Home Assistant could not verify the TLS certificate of Bria at {host}: {error}\n\nBria ships a certificate for cpclientapi.softphone.com that expires periodically; updating Bria usually fixes this. As a last resort, reconfigure the integration and turn off certificate verification, but only if TCP port 9002 on that machine is firewalled to Home Assistant's addresses."
+    }
+  },
+  "exceptions": {
+    "presence_not_settable": {
+      "message": "Bria does not allow setting presence to {status} from outside; it sets that status itself."
     }
   }
 }

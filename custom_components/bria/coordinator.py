@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.ssl import get_default_context, get_default_no_verify_context
@@ -439,6 +439,20 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 system_product_version=_text(root, "systemProductVersion"),
                 system_product_build=_text(root, "systemProductBuild"),
             )
+            self._update_device()
+
+    @callback
+    def _update_device(self) -> None:
+        """Keep the device's model and software version in step with Bria."""
+        from .entity import find_device  # noqa: PLC0415 - entity imports this module
+
+        if (device := find_device(self.hass, self.entry.entry_id, self.entry.entry_id)) is None:
+            return
+        dr.async_get(self.hass).async_update_device(
+            device.id,
+            model=self.data.get("system_product_name") or device.model,
+            sw_version=self.data.get("system_product_version") or device.sw_version,
+        )
 
     async def _refresh_system_settings(self) -> None:
         if (root := await self._fetch(STATUS_SYSTEM_SETTINGS)) is not None:

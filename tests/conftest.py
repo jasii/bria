@@ -54,11 +54,17 @@ async def setup_bria(hass, fake_bria: FakeBria, point_at_fake: None):  # type: i
 
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=2,
+        title="Bria VoIP",
         data={CONF_HOST: "127.0.0.1", CONF_PORT: fake_bria.port},
         unique_id=f"127.0.0.1:{fake_bria.port}",
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await asyncio.wait_for(fake_bria.connected.wait(), timeout=5)
+    # Wait for the initial status sweep, not just the socket.
+    async with asyncio.timeout(5):
+        while entry.runtime_data.data.get("system_product_version") is None:
+            await asyncio.sleep(0.02)
     await hass.async_block_till_done()
     return entry
