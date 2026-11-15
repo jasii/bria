@@ -30,9 +30,22 @@ New-NetFirewallRule -DisplayName "Bria API from HA" -Direction Inbound -Protocol
 
 **Why this matters:** once access is allowed, Bria gives every client full control (place calls, change presence, sign out, quit) with no per-client check. If Bria is set to allow API access without prompting, any device that can reach TCP 9002 has that control, so the firewall rule is the only thing standing between your network and your phone line.
 
+## Safety options
+
+**Settings → Devices & services → Bria VoIP → Configure** has a second page, **Safety**:
+
+| Option | Default | Effect |
+|---|---|---|
+| Allow placing and transferring calls | on | `place_call`, `transfer_call` and `start_attended_transfer` are refused when off. |
+| Allowed numbers (regular expression) | empty | When set, those services only accept numbers that fully match, e.g. `1\d{2}` for three-digit extensions starting with 1. |
+| Allow call recording | off | `start_call_recording` is refused when off. Recordings are saved on the Bria computer; filenames containing `..` are rejected. |
+| Allow sign in, sign out and exit | off | `sign_in`, `sign_out` and `exit` are refused when off. They are also limited to Home Assistant administrators. |
+
+`sign_in` takes a password in plain service data, which is visible in automation YAML and traces. Store it with `!secret`.
+
 ## Upgrading from 1.x
 
-The device is now identified by the config entry instead of the Bria machine's address, so the integration can follow Bria across addresses. Existing devices, entity IDs and history are moved over automatically on first start. Entities now show as unavailable while Bria is disconnected. The Call History sensor's state is now the time of the most recent call; the number of calls is in its `count` attribute. Screen share is off by default for new installs, because Bria 6.8 rejects screen share status requests.
+The device is now identified by the config entry instead of the Bria machine's address, so the integration can follow Bria across addresses. Existing devices, entity IDs and history are moved over automatically on first start. Entities now show as unavailable while Bria is disconnected. The Call History sensor's state is now the time of the most recent call; the number of calls is in its `count` attribute. Screen share is off by default for new installs, because Bria 6.8 rejects screen share status requests. Call recording, sign in, sign out and exit are now refused until you allow them under the Safety options.
 
 ## Development
 

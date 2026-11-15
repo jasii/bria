@@ -9,10 +9,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.service import async_register_admin_service
 
 from .const import CONF_HOST, DOMAIN, PRESENCE_OPTIONS
 from .coordinator import BriaCoordinator
 from .entity import find_device
+from .safety import check_app_control, check_dial, check_recording
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,6 +140,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_place_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_dial(coord.entry.options, call.data["number"])
             await coord.async_place_call(
                 call.data["number"], call.data.get("suppress_gui", False)
             )
@@ -169,6 +172,8 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_transfer_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             call_id = _first_call_id(coord, call.data.get("call_id"))
+            if target := call.data.get("target_number"):
+                check_dial(coord.entry.options, target)
             if call_id:
                 await coord.async_transfer_call(
                     call_id,
@@ -182,10 +187,12 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_sign_in(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_app_control(coord.entry.options)
             await coord.async_sign_in(call.data["username"], call.data["password"])
 
     async def handle_sign_out(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_app_control(coord.entry.options)
             await coord.async_sign_out()
 
     async def handle_set_audio_properties(call: ServiceCall) -> None:
@@ -204,6 +211,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_start_attended_transfer(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_dial(coord.entry.options, call.data["target_number"])
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
                 await coord.async_start_attended_transfer(
@@ -236,6 +244,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_exit(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_app_control(coord.entry.options)
             await coord.async_exit()
 
     async def handle_send_dtmf(call: ServiceCall) -> None:
@@ -246,6 +255,7 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_start_call_recording(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
+            check_recording(coord.entry.options, call.data["filename"])
             await coord.async_start_call_recording(
                 call.data["filename"],
                 call_id=call.data.get("call_id"),
@@ -371,7 +381,8 @@ def _register_services(hass: HomeAssistant) -> None:
         ),
     )
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "sign_in",
         handle_sign_in,
@@ -383,7 +394,8 @@ def _register_services(hass: HomeAssistant) -> None:
         ),
     )
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "sign_out",
         handle_sign_out,
@@ -483,7 +495,8 @@ def _register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema({vol.Required("email"): cv.string}),
     )
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         "exit",
         handle_exit,

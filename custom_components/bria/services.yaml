@@ -183,7 +183,7 @@ bring_to_front:
 
 sign_in:
   name: Sign In
-  description: Sign in to Bria with your account credentials.
+  description: Sign in to Bria with your account credentials. Admin only; needs "Allow sign in, sign out and exit" in the integration's safety options. The password is visible in automation YAML and traces, so use !secret.
   fields:
     username:
       name: Username
@@ -201,7 +201,7 @@ sign_in:
 
 sign_out:
   name: Sign Out
-  description: Sign out from Bria.
+  description: Sign out from Bria. Admin only; needs "Allow sign in, sign out and exit" in the integration's safety options.
 
 set_audio_properties:
   name: Set Audio Properties
@@ -292,7 +292,7 @@ get_contact:
 
 exit:
   name: Exit Bria
-  description: Exit the Bria application. Bria logs out and moves to the background (or asks the user if a call is active).
+  description: Exit the Bria application. Bria logs out and moves to the background (or asks the user if a call is active). Admin only; needs "Allow sign in, sign out and exit" in the integration's safety options.
 
 send_dtmf:
   name: Send DTMF
@@ -329,11 +329,11 @@ send_dtmf:
 
 start_call_recording:
   name: Start Call Recording
-  description: Start recording an active call.
+  description: Start recording an active call. Needs "Allow call recording" in the integration's safety options.
   fields:
     filename:
       name: Filename
-      description: Target filename (no extension). Bria appends the extension automatically.
+      description: Target filename (no extension) on the Bria computer. Bria appends the extension automatically. Must not contain '..'.
       required: true
       selector:
         text:

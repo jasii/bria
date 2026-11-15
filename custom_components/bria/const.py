@@ -65,3 +65,19 @@ PRESENCE_STATES = (
     "offline",
     "onThePhone",
 )
+
+# Safety options (stored in config entry options)
+CONF_ALLOW_OUTGOING_CALLS = "allow_outgoing_calls"
+CONF_DIAL_ALLOW_PATTERN = "dial_allow_pattern"
+CONF_ALLOW_RECORDING = "allow_recording"
+CONF_ALLOW_APP_CONTROL = "allow_app_control"
+
+SAFETY_DEFAULTS: dict[str, bool | str] = {
+    CONF_ALLOW_OUTGOING_CALLS: True,
+    CONF_DIAL_ALLOW_PATTERN: "",
+    CONF_ALLOW_RECORDING: False,
+    CONF_ALLOW_APP_CONTROL: False,
+}
+
+MAX_NUMBER_LENGTH = 64
+MAX_PATTERN_LENGTH = 256

@@ -31,7 +31,7 @@
     "step": {
       "init": {
         "title": "Choose Sensor Groups",
-        "description": "Enable or disable sensor groups. Changes take effect immediately.",
+        "description": "Enable or disable sensor groups. The next page has the safety options.",
         "data": {
           "group_presence": "Presence (status, presence text, presence select)",
           "group_call_details": "Call Details (caller number, caller name, call on hold)",
@@ -41,7 +41,26 @@
           "group_call_options": "Call Options (anonymous, auto-answer, call waiting, letters-to-numbers)",
           "group_missed_voicemail": "Missed Calls & Voicemail (counts)"
         }
+      },
+      "safety": {
+        "title": "Safety",
+        "description": "Limit what Home Assistant can make Bria do. Anyone who can run automations or scripts can use these services, so only allow what you need.",
+        "data": {
+          "allow_outgoing_calls": "Allow placing and transferring calls",
+          "dial_allow_pattern": "Allowed numbers (regular expression)",
+          "allow_recording": "Allow call recording",
+          "allow_app_control": "Allow sign in, sign out and exit"
+        },
+        "data_description": {
+          "dial_allow_pattern": "Optional. When set, place_call, transfer_call and start_attended_transfer only accept numbers that fully match, for example `\\+?1?\\d{10}` or `1\\d{2}|\\+1555\\d{7}`. Leave empty to allow any number.",
+          "allow_recording": "Recordings are saved on the Bria computer. Recording laws vary; check that you may record calls before turning this on.",
+          "allow_app_control": "Lets automations sign Bria out or close it. These services are also limited to Home Assistant administrators."
+        }
       }
+    },
+    "error": {
+      "invalid_pattern": "This is not a valid regular expression.",
+      "pattern_too_long": "The pattern is too long (256 characters at most)."
     }
   },
   "entity": {
@@ -159,6 +178,24 @@
   "exceptions": {
     "presence_not_settable": {
       "message": "Bria does not allow setting presence to {status} from outside; it sets that status itself."
+    },
+    "outgoing_calls_disabled": {
+      "message": "Placing and transferring calls is turned off in the Bria integration's safety options."
+    },
+    "number_not_allowed": {
+      "message": "{number} does not match the allowed-numbers pattern in the Bria integration's safety options."
+    },
+    "number_too_long": {
+      "message": "The number is longer than {max} characters."
+    },
+    "recording_disabled": {
+      "message": "Call recording is turned off in the Bria integration's safety options."
+    },
+    "recording_filename_invalid": {
+      "message": "The recording filename must not contain '..' or control characters."
+    },
+    "app_control_disabled": {
+      "message": "Sign in, sign out and exit are turned off in the Bria integration's safety options."
     }
   }
 }
