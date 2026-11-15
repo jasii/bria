@@ -2,7 +2,7 @@
 [repo]
 name = "bria"
 forgejo = "projects/bria"
-github = ""
+github = "jasii/bria"
 remote = "forgejo"
 primary = "forgejo"
 created = "2026-11-14"
