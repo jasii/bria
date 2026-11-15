@@ -196,6 +196,9 @@
     },
     "app_control_disabled": {
       "message": "Sign in, sign out and exit are turned off in the Bria integration's safety options."
+    },
+    "not_connected": {
+      "message": "No Bria computer is connected."
     }
   }
 }

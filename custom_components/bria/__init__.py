@@ -141,7 +141,7 @@ def _register_services(hass: HomeAssistant) -> None:
     async def handle_place_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_dial(coord.entry.options, call.data["number"])
-            await coord.async_place_call(
+            await coord.active.async_place_call(
                 call.data["number"], call.data.get("suppress_gui", False)
             )
 
@@ -149,25 +149,25 @@ def _register_services(hass: HomeAssistant) -> None:
         if coord := _get_coordinator(hass):
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
-                await coord.async_answer_call(call_id, call.data.get("with_video", False))
+                await coord.active.async_answer_call(call_id, call.data.get("with_video", False))
 
     async def handle_end_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
-                await coord.async_end_call(call_id)
+                await coord.active.async_end_call(call_id)
 
     async def handle_hold_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
-                await coord.async_hold_call(call_id)
+                await coord.active.async_hold_call(call_id)
 
     async def handle_resume_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
-                await coord.async_resume_call(call_id)
+                await coord.active.async_resume_call(call_id)
 
     async def handle_transfer_call(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
@@ -175,7 +175,7 @@ def _register_services(hass: HomeAssistant) -> None:
             if target := call.data.get("target_number"):
                 check_dial(coord.entry.options, target)
             if call_id:
-                await coord.async_transfer_call(
+                await coord.active.async_transfer_call(
                     call_id,
                     target_number=call.data.get("target_number"),
                     target_call_id=call.data.get("target_call_id"),
@@ -183,21 +183,21 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_bring_to_front(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_bring_to_front(call.data.get("window", "main"))
+            await coord.active.async_bring_to_front(call.data.get("window", "main"))
 
     async def handle_sign_in(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_app_control(coord.entry.options)
-            await coord.async_sign_in(call.data["username"], call.data["password"])
+            await coord.active.async_sign_in(call.data["username"], call.data["password"])
 
     async def handle_sign_out(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_app_control(coord.entry.options)
-            await coord.async_sign_out()
+            await coord.active.async_sign_out()
 
     async def handle_set_audio_properties(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_set_audio_properties(
+            await coord.active.async_set_audio_properties(
                 mute=call.data.get("mute"),
                 speaker_mute=call.data.get("speaker_mute"),
                 speaker=call.data.get("speaker"),
@@ -207,24 +207,24 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_select_audio_devices(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_select_audio_devices(call.data["devices"])
+            await coord.active.async_select_audio_devices(call.data["devices"])
 
     async def handle_start_attended_transfer(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_dial(coord.entry.options, call.data["target_number"])
             call_id = _first_call_id(coord, call.data.get("call_id"))
             if call_id:
-                await coord.async_start_attended_transfer(
+                await coord.active.async_start_attended_transfer(
                     call_id, call.data["target_number"]
                 )
 
     async def handle_merge_calls(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_merge_calls(call.data["call_id"])
+            await coord.active.async_merge_calls(call.data["call_id"])
 
     async def handle_set_call_options(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_set_call_options(
+            await coord.active.async_set_call_options(
                 anonymous=call.data.get("anonymous"),
                 letters_to_numbers=call.data.get("letters_to_numbers"),
                 auto_answer=call.data.get("auto_answer"),
@@ -233,30 +233,30 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_check_voicemail(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_check_voicemail(
+            await coord.active.async_check_voicemail(
                 call.data["account_id"],
                 call.data.get("suppress_gui", True),
             )
 
     async def handle_get_contact(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_get_contact(call.data["email"])
+            await coord.active.async_get_contact(call.data["email"])
 
     async def handle_exit(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_app_control(coord.entry.options)
-            await coord.async_exit()
+            await coord.active.async_exit()
 
     async def handle_send_dtmf(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_send_dtmf(
+            await coord.active.async_send_dtmf(
                 call.data["digit"], call.data.get("tone", "start")
             )
 
     async def handle_start_call_recording(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
             check_recording(coord.entry.options, call.data["filename"])
-            await coord.async_start_call_recording(
+            await coord.active.async_start_call_recording(
                 call.data["filename"],
                 call_id=call.data.get("call_id"),
                 suppress_popup=call.data.get("suppress_popup", True),
@@ -264,43 +264,43 @@ def _register_services(hass: HomeAssistant) -> None:
 
     async def handle_stop_call_recording(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_stop_call_recording(call.data.get("call_id"))
+            await coord.active.async_stop_call_recording(call.data.get("call_id"))
 
     async def handle_show_history(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_show_history(
+            await coord.active.async_show_history(
                 call.data.get("history_type", "all"),
                 call.data.get("text", ""),
             )
 
     async def handle_get_call_history(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_get_call_history(
+            await coord.active.async_get_call_history(
                 call.data.get("count", 10),
                 call.data.get("entry_type", "all"),
             )
 
     async def handle_get_call_history_item(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_get_call_history_item(call.data["item_id"])
+            await coord.active.async_get_call_history_item(call.data["item_id"])
 
     async def handle_start_im(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_start_im(
+            await coord.active.async_start_im(
                 call.data["address"], call.data.get("im_type", "sip")
             )
 
     async def handle_start_screen_share(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_start_screen_share(call.data["invitees"])
+            await coord.active.async_start_screen_share(call.data["invitees"])
 
     async def handle_start_collab(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_start_collab()
+            await coord.active.async_start_collab()
 
     async def handle_join_collab(call: ServiceCall) -> None:
         if coord := _get_coordinator(hass):
-            await coord.async_join_collab(call.data["collab_url"])
+            await coord.active.async_join_collab(call.data["collab_url"])
 
     hass.services.async_register(
         DOMAIN,

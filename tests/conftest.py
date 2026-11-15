@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from custom_components.bria import coordinator as coordinator_mod
+from custom_components.bria import coordinator as coordinator_mod, machine as machine_mod
 
 from .fake_bria import FakeBria, default_status_responses
 
@@ -37,8 +37,8 @@ def point_at_fake() -> Generator[None]:
     """Make the coordinator use plain ws:// (the fake server has no TLS)."""
     with (
         patch.object(coordinator_mod.BriaCoordinator, "_ssl_context", return_value=None),
-        patch.object(coordinator_mod, "BACKOFF_INITIAL", 0.05),
-        patch.object(coordinator_mod, "BACKOFF_MAX", 0.2),
+        patch.object(machine_mod, "BACKOFF_INITIAL", 0.05),
+        patch.object(machine_mod, "BACKOFF_MAX", 0.2),
     ):
         yield
 

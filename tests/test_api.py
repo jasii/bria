@@ -153,7 +153,7 @@ async def test_connect_refused(socket_enabled: None) -> None:
 
 def test_verify_context_includes_bria_intermediate() -> None:
     """Bria sends no chain; the bundled RapidSSL intermediate must be trusted."""
-    from custom_components.bria.coordinator import build_verify_context
+    from custom_components.bria.machine import build_verify_context
 
     ctx = build_verify_context()
     subjects = [dict(x[0] for x in c["subject"]).get("commonName") for c in ctx.get_ca_certs()]
