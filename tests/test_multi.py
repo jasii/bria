@@ -296,3 +296,69 @@ async def test_history_returns_response(
     assert result["machine"] == "Laptop"
     assert isinstance(result["entries"], list)
     assert laptop.status_types_requested().count("callHistory") >= 2
+
+
+# -- per-computer devices, active computer, reconnect ----------------------------------
+
+
+async def test_child_devices_and_active_sensor(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, two_machines
+) -> None:
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.bria.entity import find_device
+
+    entry = two_machines
+    parent = find_device(hass, entry.entry_id, entry.entry_id)
+    child = find_device(hass, entry.entry_id, f"{entry.entry_id}_laptop")
+    assert child is not None and child.via_device_id == parent.id
+    assert child.sw_version == "6.5.1"
+    assert hass.states.get("binary_sensor.laptop_connected").state == "on"
+    assert hass.states.get("sensor.laptop_address").attributes["via"] == "lan"
+    assert hass.states.get("sensor.bria_voip_active_computer").state == "Desktop"
+
+    laptop.status_responses["call"] = ringing_call("9")
+    await laptop.push_event("call")
+    await _until(hass, lambda: hass.states.get("sensor.bria_voip_active_computer").state == "Laptop")
+
+    await laptop.stop()
+    await _until(hass, lambda: hass.states.get("binary_sensor.laptop_connected").state == "off")
+    assert hass.states.get("sensor.laptop_address").state == "unavailable"
+    assert len(dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)) == 3
+
+
+async def test_reconnect_skips_backoff(
+    hass: HomeAssistant, fake_bria: FakeBria, point_at_fake: None
+) -> None:
+    from unittest.mock import patch
+
+    from custom_components.bria import machine as machine_mod
+
+    with patch.object(machine_mod, "BACKOFF_INITIAL", 60), patch.object(machine_mod, "BACKOFF_MAX", 60):
+        entry = v3_entry(fake_bria.port, machine("Bria", "127.0.0.1"))
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await wait_ready(entry)
+        machine_obj = entry.runtime_data.machines[0]
+        await fake_bria.drop_clients()
+        await _until(hass, lambda: not machine_obj.connected)
+        await asyncio.sleep(0.2)
+        assert not fake_bria.connected.is_set()
+        await hass.services.async_call(DOMAIN, "reconnect", {}, blocking=True)
+        await asyncio.wait_for(fake_bria.connected.wait(), timeout=3)
+        await wait_ready(entry)
+
+
+async def test_removed_machine_device_is_cleaned_up(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, two_machines
+) -> None:
+    from custom_components.bria.entity import find_device
+
+    entry = two_machines
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "machines": entry.data["machines"][:1]}
+    )
+    await hass.async_block_till_done()
+    await wait_ready(entry)
+    assert find_device(hass, entry.entry_id, f"{entry.entry_id}_laptop") is None
+    assert find_device(hass, entry.entry_id, f"{entry.entry_id}_desktop") is not None

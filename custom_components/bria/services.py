@@ -231,6 +231,11 @@ async def _get_call_history_item(hass: HomeAssistant, call: ServiceCall) -> Serv
     return {"entries": _jsonable(entries), ATTR_MACHINE: machine.name}
 
 
+async def _reconnect(hass: HomeAssistant, call: ServiceCall) -> None:
+    for coord in _coordinators(hass):
+        coord.async_reconnect()
+
+
 # -- registration -------------------------------------------------------------------------
 
 _DEVICE = vol.Schema({vol.Required("name"): cv.string, vol.Required("id"): cv.string,
@@ -308,6 +313,7 @@ SERVICES: dict[str, tuple[Handler, dict[Any, Any], bool, SupportsResponse]] = {
                 {**_BASE, vol.Required("username"): cv.string, vol.Required("password"): cv.string},
                 True, SupportsResponse.NONE),
     "sign_out": (_app_control("async_sign_out"), _BASE, True, SupportsResponse.NONE),
+    "reconnect": (_reconnect, {}, False, SupportsResponse.NONE),
     "exit": (_app_control("async_exit"), _BASE, True, SupportsResponse.NONE),
 }
 

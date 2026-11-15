@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BriaConfigEntry
 from .const import GROUP_CALL_DETAILS, GROUP_PHONE_INFO, GROUP_SCREEN_SHARE
-from .entity import BriaEntity, add_entities_for_groups
+from .entity import BriaEntity, BriaMachineEntity, add_entities_for_groups
 
 PARALLEL_UPDATES = 0
 
@@ -92,6 +92,9 @@ async def async_setup_entry(
         lambda desc: BriaBinarySensor(coordinator, desc),
         async_add_entities,
     )
+    async_add_entities(
+        BriaMachineConnected(coordinator, m.id, MACHINE_CONNECTED) for m in coordinator.machines
+    )
 
 
 class BriaBinarySensor(BriaEntity, BinarySensorEntity):
@@ -104,3 +107,23 @@ class BriaBinarySensor(BriaEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         return self.entity_description.value_fn(self.data)
+
+
+MACHINE_CONNECTED = BinarySensorEntityDescription(
+    key="connected",
+    translation_key="machine_connected",
+    device_class=BinarySensorDeviceClass.CONNECTIVITY,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
+class BriaMachineConnected(BriaMachineEntity, BinarySensorEntity):
+    """Whether Home Assistant is connected to this computer's Bria."""
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.summary.get("connected"))

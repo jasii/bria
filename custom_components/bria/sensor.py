@@ -25,7 +25,13 @@ from .const import (
     GROUP_PRESENCE,
     GROUP_SCREEN_SHARE,
 )
-from .entity import BriaEntity, add_entities_for_groups, first_call, first_participant
+from .entity import (
+    BriaEntity,
+    BriaMachineEntity,
+    add_entities_for_groups,
+    first_call,
+    first_participant,
+)
 
 PARALLEL_UPDATES = 0
 
@@ -105,7 +111,23 @@ def _history_attrs(d: Data) -> dict[str, Any]:
     return {"count": len(entries), "grouped": grouped, "entries": entries}
 
 
+def _active_name(d: Data) -> str | None:
+    active = d.get("active_machine")
+    return d.get("machines", {}).get(active, {}).get("name") if active else None
+
+
+def _active_attrs(d: Data) -> dict[str, Any]:
+    info = d.get("machines", {}).get(d.get("active_machine") or "", {})
+    return {"address": info.get("address"), "via": info.get("via")}
+
+
 DESCRIPTIONS: tuple[BriaSensorDescription, ...] = (
+    BriaSensorDescription(
+        key="active_machine",
+        translation_key="active_machine",
+        value_fn=_active_name,
+        attrs_fn=_active_attrs,
+    ),
     BriaSensorDescription(
         key="active_call_count",
         translation_key="active_call_count",
@@ -214,6 +236,11 @@ async def async_setup_entry(
         lambda desc: BriaSensor(coordinator, desc),
         async_add_entities,
     )
+    async_add_entities(
+        BriaMachineSensor(coordinator, m.id, desc)
+        for m in coordinator.machines
+        for desc in MACHINE_DESCRIPTIONS
+    )
 
 
 class BriaSensor(BriaEntity, SensorEntity):
@@ -232,3 +259,36 @@ class BriaSensor(BriaEntity, SensorEntity):
         if self.entity_description.attrs_fn is None:
             return None
         return self.entity_description.attrs_fn(self.data)
+
+
+MACHINE_DESCRIPTIONS: tuple[BriaSensorDescription, ...] = (
+    BriaSensorDescription(
+        key="address",
+        translation_key="machine_address",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda m: m.get("address"),
+        attrs_fn=lambda m: {"via": m.get("via")},
+    ),
+    BriaSensorDescription(
+        key="bria_version",
+        translation_key="bria_version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda m: m.get("version"),
+    ),
+)
+
+
+class BriaMachineSensor(BriaMachineEntity, SensorEntity):
+    """Per-computer diagnostic sensor; value functions read the machine summary."""
+
+    entity_description: BriaSensorDescription
+
+    @property
+    def native_value(self) -> Any:
+        return self.entity_description.value_fn(self.summary)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.attrs_fn is None:
+            return None
+        return self.entity_description.attrs_fn(self.summary)

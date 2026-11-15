@@ -145,4 +145,5 @@ async def test_migrate_v1_keeps_device_and_entities(
     assert moved is not None and moved.id == old.id
     assert find_device(hass, entry.entry_id, "127.0.0.1") is None
     assert ent_reg.async_get(ent.entity_id).device_id == old.id
-    assert len(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)) == 1
+    # The combined device plus one child device for the migrated computer.
+    assert len(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)) == 2

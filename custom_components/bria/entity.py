@@ -73,6 +73,38 @@ class BriaEntity(CoordinatorEntity["BriaCoordinator"]):
         return True
 
 
+class BriaMachineEntity(CoordinatorEntity["BriaCoordinator"]):
+    """Diagnostic entity on one computer's own device (child of the combined device)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BriaCoordinator, machine_id: str, description: EntityDescription) -> None:
+        from .coordinator import machine_device_id  # noqa: PLC0415 - import cycle
+
+        super().__init__(coordinator)
+        self.entity_description = description
+        self.machine_id = machine_id
+        entry = coordinator.entry
+        machine = coordinator.machine(machine_id)
+        assert machine is not None
+        self._attr_unique_id = f"{entry.entry_id}_{machine_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, machine_device_id(entry.entry_id, machine_id))},
+            name=machine.name,
+            manufacturer=MANUFACTURER,
+            model="Bria",
+            via_device=(DOMAIN, entry.entry_id),
+        )
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        return self.coordinator.data.get("machines", {}).get(self.machine_id, {})
+
+    @property
+    def available(self) -> bool:
+        return bool(self.summary.get("connected"))
+
+
 def add_entities_for_groups[D: EntityDescription](
     hass: HomeAssistant,
     entry: BriaConfigEntry,

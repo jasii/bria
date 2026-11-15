@@ -31,6 +31,8 @@ If you run Bria on more than one computer (for example a desktop and a laptop), 
 - Every service accepts an optional `machine` field (the computer's name) to pick a computer explicitly. `sign_in`, `sign_out`, `exit` and `check_voicemail` require it when there is more than one computer.
 - `get_contact`, `get_call_history` and `get_call_history_item` return their results as response data (and still fire the `bria_contact_lookup` / `bria_call_history` events).
 
+Each computer also gets its own small device (linked to the main one) with **Connected**, **Address** (attribute `via`: `lan` or `tailscale`) and **Bria Version**. The main device has **Active Computer** (which computer actions go to) and a **Reconnect** button; `bria.reconnect` does the same from automations.
+
 Give each computer all the addresses that reach it, one per line, LAN first and then Tailscale (for example `192.168.1.50` and `100.64.12.34`). An address may include a port (`host:9003`) if that Bria uses a different one. Port and certificate verification for the whole entry are under **⋮ → Reconfigure**.
 
 ## Network access

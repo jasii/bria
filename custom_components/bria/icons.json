@@ -27,6 +27,12 @@
       },
       "can_make_call": {
         "default": "mdi:phone-plus"
+      },
+      "machine_connected": {
+        "default": "mdi:lan-disconnect",
+        "state": {
+          "on": "mdi:lan-connect"
+        }
       }
     },
     "number": {
@@ -75,6 +81,12 @@
       },
       "account_count": {
         "default": "mdi:account-multiple"
+      },
+      "machine_address": {
+        "default": "mdi:ip-network"
+      },
+      "active_machine": {
+        "default": "mdi:monitor-cellphone"
       }
     },
     "switch": {
@@ -99,6 +111,16 @@
       "letters_to_numbers": {
         "default": "mdi:numeric"
       }
+    },
+    "button": {
+      "reconnect": {
+        "default": "mdi:refresh"
+      }
+    }
+  },
+  "services": {
+    "reconnect": {
+      "service": "mdi:refresh"
     }
   }
 }

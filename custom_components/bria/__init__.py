@@ -27,7 +27,14 @@ from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.SWITCH, Platform.NUMBER]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 type BriaConfigEntry = ConfigEntry[BriaCoordinator]
 
@@ -48,6 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BriaConfigEntry) -> bool
 
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    coordinator.async_remove_stale_devices()
 
     # Reload the entry whenever the user changes sensor group options
     entry.async_on_unload(entry.add_update_listener(_async_reload_on_options_update))

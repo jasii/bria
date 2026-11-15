@@ -346,6 +346,7 @@ class BriaMachine:
         self.data = _default_data()
         self._loop_task: asyncio.Task | None = None
         self._failures = 0
+        self._wake = asyncio.Event()
 
     @property
     def connected(self) -> bool:
@@ -382,8 +383,16 @@ class BriaMachine:
             await self._connect_once()
             if time.monotonic() - started >= STABLE_CONNECTION:
                 delay = BACKOFF_INITIAL
-            await asyncio.sleep(delay)
+            self._wake.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._wake.wait(), delay)
+                delay = BACKOFF_INITIAL  # woken by reconnect(): start the backoff over
+                continue
             delay = min(delay * 2, BACKOFF_MAX)
+
+    def reconnect(self) -> None:
+        """Retry now instead of waiting out the backoff (no effect while connected)."""
+        self._wake.set()
 
     async def _connect_any(self) -> str | None:
         """Try each address in order; return the one that connected."""

@@ -191,6 +191,12 @@
       },
       "account_count": {
         "name": "Registered Accounts"
+      },
+      "machine_address": {
+        "name": "Address"
+      },
+      "active_machine": {
+        "name": "Active Computer"
       }
     },
     "binary_sensor": {
@@ -214,6 +220,9 @@
       },
       "can_make_call": {
         "name": "Can Make Call"
+      },
+      "machine_connected": {
+        "name": "Connected"
       }
     },
     "number": {
@@ -260,6 +269,11 @@
           "notAvailableForCalls": "Not Available for Calls",
           "onThePhone": "On the Phone"
         }
+      }
+    },
+    "button": {
+      "reconnect": {
+        "name": "Reconnect"
       }
     }
   },

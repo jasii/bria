@@ -653,3 +653,7 @@ join_collab:
       selector:
         text:
 
+
+reconnect:
+  name: Reconnect
+  description: Retry every disconnected Bria computer now instead of waiting for the next automatic attempt (up to a minute).
