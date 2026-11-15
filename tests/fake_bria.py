@@ -102,6 +102,8 @@ class FakeBria:
     status_responses: dict[str, Reply] = field(default_factory=dict)
     action_responses: dict[str, Reply] = field(default_factory=dict)
     requests: list[FakeRequest] = field(default_factory=list)
+    # Paths or status types that get no reply at all (to test timeouts).
+    no_reply: set[str] = field(default_factory=set)
     _server: TestServer | None = None
     _sockets: list[web.WebSocketResponse] = field(default_factory=list)
     connected: asyncio.Event = field(default_factory=asyncio.Event)
@@ -154,6 +156,8 @@ class FakeBria:
                     continue
                 req = parse_request(msg.data)
                 self.requests.append(req)
+                if req.path in self.no_reply or (req.status_type or "") in self.no_reply:
+                    continue
                 if req.path == "status":
                     reply = self.status_responses.get(req.status_type or "", Reply(200))
                 else:

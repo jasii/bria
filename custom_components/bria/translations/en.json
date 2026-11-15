@@ -46,39 +46,93 @@
   },
   "entity": {
     "sensor": {
-      "presence_text": { "name": "Presence Message" },
-      "active_call_count": { "name": "Active Calls" },
-      "caller_number": { "name": "Caller Number" },
-      "caller_name": { "name": "Caller Name" },
-      "call_history": { "name": "Call History" },
-      "screen_share_status": { "name": "Screen Share Status" },
-      "phone_account_status": { "name": "Phone Account Status" },
-      "bria_version": { "name": "Bria Version" },
-      "missed_call_count": { "name": "Missed Calls" },
-      "voicemail_count": { "name": "Voicemail" },
-      "account_count": { "name": "Registered Accounts" }
+      "presence_text": {
+        "name": "Presence Message"
+      },
+      "active_call_count": {
+        "name": "Active Calls"
+      },
+      "caller_number": {
+        "name": "Caller Number"
+      },
+      "caller_name": {
+        "name": "Caller Name"
+      },
+      "call_history": {
+        "name": "Call History"
+      },
+      "screen_share_status": {
+        "name": "Screen Share Status"
+      },
+      "phone_account_status": {
+        "name": "Phone Account Status"
+      },
+      "bria_version": {
+        "name": "Bria Version"
+      },
+      "missed_call_count": {
+        "name": "Missed Calls"
+      },
+      "voicemail_count": {
+        "name": "Voicemail"
+      },
+      "account_count": {
+        "name": "Registered Accounts"
+      }
     },
     "binary_sensor": {
-      "on_call": { "name": "On Call" },
-      "authenticated": { "name": "Authenticated" },
-      "call_on_hold": { "name": "Call on Hold" },
-      "screen_sharing": { "name": "Screen Sharing" },
-      "connected": { "name": "Connected" },
-      "phone_ready": { "name": "Phone Ready" },
-      "can_make_call": { "name": "Can Make Call" }
+      "on_call": {
+        "name": "On Call"
+      },
+      "authenticated": {
+        "name": "Authenticated"
+      },
+      "call_on_hold": {
+        "name": "Call on Hold"
+      },
+      "screen_sharing": {
+        "name": "Screen Sharing"
+      },
+      "connected": {
+        "name": "Connected"
+      },
+      "phone_ready": {
+        "name": "Phone Ready"
+      },
+      "can_make_call": {
+        "name": "Can Make Call"
+      }
     },
     "number": {
-      "speaker_volume": { "name": "Speaker Volume" },
-      "microphone_volume": { "name": "Microphone Volume" }
+      "speaker_volume": {
+        "name": "Speaker Volume"
+      },
+      "microphone_volume": {
+        "name": "Microphone Volume"
+      }
     },
     "switch": {
-      "muted": { "name": "Microphone Muted" },
-      "speaker_muted": { "name": "Speaker Muted" },
-      "speaker_mode": { "name": "Speaker Mode" },
-      "anonymous_calling": { "name": "Anonymous Calling" },
-      "auto_answer": { "name": "Auto Answer" },
-      "call_waiting": { "name": "Call Waiting" },
-      "letters_to_numbers": { "name": "Letters to Numbers" }
+      "muted": {
+        "name": "Microphone Muted"
+      },
+      "speaker_muted": {
+        "name": "Speaker Muted"
+      },
+      "speaker_mode": {
+        "name": "Speaker Mode"
+      },
+      "anonymous_calling": {
+        "name": "Anonymous Calling"
+      },
+      "auto_answer": {
+        "name": "Auto Answer"
+      },
+      "call_waiting": {
+        "name": "Call Waiting"
+      },
+      "letters_to_numbers": {
+        "name": "Letters to Numbers"
+      }
     },
     "select": {
       "presence_status": {
@@ -91,6 +145,12 @@
           "offline": "Offline"
         }
       }
+    }
+  },
+  "issues": {
+    "tls_verification_failed": {
+      "title": "Bria certificate could not be verified",
+      "description": "Home Assistant could not verify the TLS certificate of Bria at {host}: {error}\n\nBria ships a certificate for cpclientapi.softphone.com that expires periodically; updating Bria usually fixes this. As a last resort, reconfigure the integration and turn off certificate verification, but only if TCP port 9002 on that machine is firewalled to Home Assistant's addresses."
     }
   }
 }

@@ -1,22 +1,38 @@
-"""Bria WebSocket coordinator — manages connection, state, and actions."""
+"""Bria coordinator: owns the connection loop and the integration's state."""
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+import copy
+from datetime import UTC, datetime
 import logging
-import socket
 import ssl
-import xml.etree.ElementTree as ET
+import time
 from typing import Any
-from xml.sax.saxutils import escape as _xe
+import xml.etree.ElementTree as ET
 
-import aiohttp
-import aiohttp.abc
-
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util.ssl import get_default_context, get_default_no_verify_context
 
+from .api import (
+    BriaBadRequest,
+    BriaClient,
+    BriaConnectionError,
+    BriaError,
+    BriaTLSError,
+    BriaResponse,
+    xml_el,
+)
 from .const import (
-    DEFAULT_HOST,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_VERIFY_SSL,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
     STATUS_ACCOUNT,
     STATUS_AUDIO_DEVICES,
@@ -33,47 +49,24 @@ from .const import (
     STATUS_SYSTEM_INFO,
     STATUS_SYSTEM_SETTINGS,
     STATUS_VOICEMAIL,
-    WS_PATH,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-
-class _BriaDNSResolver(aiohttp.abc.AbstractResolver):
-    """Resolve the Bria API hostname to a specific IP.
-
-    Bria's TLS certificate is issued for ``cpclientapi.softphone.com``.
-    When Home Assistant is on a different machine we must connect to the
-    user's IP while still presenting that hostname in the TLS SNI so that
-    the cert handshake succeeds and Bria shows the permission prompt.
-    """
-
-    def __init__(self, target_ip: str) -> None:
-        self._target_ip = target_ip
-
-    async def resolve(
-        self, host: str, port: int = 0, family: int = socket.AF_UNSPEC
-    ) -> list[dict]:
-        return [
-            {
-                "hostname": host,
-                "host": self._target_ip,
-                "port": port,
-                "family": socket.AF_INET,
-                "proto": 0,
-                "flags": 0,
-            }
-        ]
-
-    async def close(self) -> None:
-        pass
+BACKOFF_INITIAL = 5.0
+BACKOFF_MAX = 60.0
+STABLE_CONNECTION = 30.0  # a connection that lasted this long resets the backoff
+HISTORY_COUNT = 50
 
 _DEFAULT_DATA: dict[str, Any] = {
+    "connected": False,
     "presence_status": None,
     "presence_text": None,
     "authenticated": None,
     "auth_reason": None,
+    "auth_server_reason": None,
     "active_calls": [],
+    "screen_share_supported": None,
     "screen_share_status": None,
     "screen_share_url": None,
     "phone_state": None,
@@ -81,6 +74,8 @@ _DEFAULT_DATA: dict[str, Any] = {
     "phone_max_lines": None,
     "phone_account_status": None,
     "phone_account_failure_code": None,
+    "system_company_name": None,
+    "system_product_name": None,
     "system_product_version": None,
     "system_product_build": None,
     "system_default_call_type": None,
@@ -101,565 +96,526 @@ _DEFAULT_DATA: dict[str, Any] = {
     "xmpp_accounts": [],
     "supported_presences": [],
     "call_history": [],
-    "connected": False,
 }
 
 
-class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Manages the persistent WebSocket connection to the Bria desktop app."""
+def _default_data() -> dict[str, Any]:
+    return copy.deepcopy(_DEFAULT_DATA)
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None)
-        self._host = host
-        self._port = port
-        # Always use the Bria API hostname in the URL so TLS SNI matches
-        # the certificate embedded in Bria. A custom DNS resolver redirects
-        # that hostname to the user-configured IP when needed.
-        self._ws_url = f"wss://{DEFAULT_HOST}:{port}{WS_PATH}"
-        self._ws: aiohttp.ClientWebSocketResponse | None = None
-        self._session: aiohttp.ClientSession | None = None
-        self._transaction_id = 0
-        self._reconnect_task: asyncio.Task | None = None
-        self.data: dict[str, Any] = dict(_DEFAULT_DATA)
 
-    # ------------------------------------------------------------------
-    # DataUpdateCoordinator required override (push model — no polling)
-    # ------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Parsing helpers (pure functions, unit-testable)
+# ---------------------------------------------------------------------------
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        return self.data
 
-    # ------------------------------------------------------------------
-    # Message construction
-    # ------------------------------------------------------------------
+def _text(el: ET.Element, tag: str) -> str | None:
+    val = el.findtext(tag)
+    return val.strip() if val is not None else None
 
-    def _next_tid(self) -> str:
-        self._transaction_id += 1
-        return str(self._transaction_id)
 
-    def _build_message(self, request_type: str, body: str) -> str:
-        content_length = len(body.encode("utf-8"))
-        msg = (
-            f"GET /{request_type}\r\n"
-            f"User-Agent: HomeAssistant-Bria\r\n"
-            f"Transaction-ID: {self._next_tid()}\r\n"
-            f"Content-Type: application/xml\r\n"
-            f"Content-Length: {content_length}"
-        )
-        if content_length > 0:
-            msg += f"\r\n\r\n{body}"
-        return msg
-
-    async def _send(self, request_type: str, body: str = "") -> None:
-        if self._ws is not None and not self._ws.closed:
-            try:
-                await self._ws.send_str(self._build_message(request_type, body))
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed to send message to Bria: %s", err)
-
-    # ------------------------------------------------------------------
-    # Status requests
-    # ------------------------------------------------------------------
-
-    async def _request_status(self, status_type: str, extra: str = "") -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<status>\n <type>{status_type}</type>\n{extra}</status>"
-        )
-        await self._send("status", body)
-
-    # ------------------------------------------------------------------
-    # Message parsing
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_message(msg: str) -> dict[str, Any]:
-        """Parse the HTTP-like envelope Bria uses over WebSocket."""
-        result: dict[str, Any] = {"type": "unknown", "event_type": None, "content": ""}
-        lines = msg.replace("\r\n", "\n").split("\n")
-        first = lines[0]
-
-        if first.startswith("POST"):
-            result["type"] = "event"
-            if first[5:].strip().startswith("/statusChange"):
-                result["event_type"] = "statusChange"
-        elif first.startswith("HTTP/1.1"):
-            rest = first[8:].strip()
-            if rest.startswith("200 OK"):
-                result["type"] = "response"
-            elif rest and rest[0] in ("4", "5"):
-                result["type"] = "error"
-
-        content_parts: list[str] = []
-        in_body = False
-        for line in lines[1:]:
-            if in_body:
-                content_parts.append(line)
-            elif line.lstrip().startswith("<"):
-                in_body = True
-                content_parts.append(line)
-
-        result["content"] = "\n".join(content_parts)
-        return result
-
-    @staticmethod
-    def _parse_xml(xml_str: str) -> ET.Element | None:
-        if not xml_str.strip():
-            return None
-        try:
-            return ET.fromstring(xml_str)
-        except ET.ParseError:
-            # Strip XML declaration and retry
-            if "?>" in xml_str:
-                clean = xml_str[xml_str.index("?>") + 2:].strip()
-                try:
-                    return ET.fromstring(clean)
-                except ET.ParseError:
-                    pass
-        _LOGGER.debug("Could not parse XML: %.200s", xml_str)
+def _int(value: str | None) -> int | None:
+    try:
+        return int(value.strip()) if value is not None else None
+    except ValueError:
         return None
 
-    # ------------------------------------------------------------------
-    # Response handlers
-    # ------------------------------------------------------------------
 
-    def _handle_response(self, xml_str: str) -> None:
-        root = self._parse_xml(xml_str)
-        if root is None:
-            return
-        if root.tag == "status":
-            stype = root.attrib.get("type", "")
-            handler = {
-                STATUS_CALL: self._handle_call_status,
-                STATUS_AUTHENTICATION: self._handle_auth_status,
-                STATUS_SCREENSHARE: self._handle_screenshare_status,
-                STATUS_PRESENCE: self._handle_presence_status,
-                STATUS_PHONE: self._handle_phone_status,
-                STATUS_SYSTEM_INFO: self._handle_system_info,
-                STATUS_SYSTEM_SETTINGS: self._handle_system_settings,
-                STATUS_AUDIO_DEVICES: self._handle_audio_devices,
-                STATUS_AUDIO_PROPERTIES: self._handle_audio_properties,
-                STATUS_CALL_OPTIONS: self._handle_call_options,
-                STATUS_MISSED_CALL: self._handle_missed_call,
-                STATUS_VOICEMAIL: self._handle_voicemail,
-                "contact": self._handle_contact_status,
-                STATUS_ACCOUNT: self._handle_account_status,
-                STATUS_SUPPORTED_PRESENCE: self._handle_supported_presence,
-                STATUS_CALLHISTORY: self._handle_call_history_response,
-            }.get(stype)
-            if handler:
-                handler(root)
+def _bool(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    return value.strip().lower() in ("true", "enabled")
 
-    def _handle_presence_status(self, root: ET.Element) -> None:
-        self.data["presence_status"] = root.findtext("presenceStatus")
-        self.data["presence_text"] = root.findtext("presenceText")
 
-    def _handle_auth_status(self, root: ET.Element) -> None:
-        auth = root.findtext("authenticated", "false") or "false"
-        self.data["authenticated"] = auth.strip().lower() == "true"
-        self.data["auth_reason"] = root.findtext("notAuthenticatedReason")
+def _timestamp(value: str | None) -> datetime | None:
+    """Unix seconds -> aware datetime. 0 means 'not connected yet' (p. 33)."""
+    secs = _int(value)
+    if not secs:
+        return None
+    return datetime.fromtimestamp(secs, tz=UTC)
 
-    def _handle_call_status(self, root: ET.Element) -> None:
-        calls: list[dict[str, Any]] = []
-        for call in root.findall("call"):
-            participants: list[dict[str, str]] = []
-            parts_el = call.find("participants")
-            if parts_el is not None:
-                for p in parts_el.findall("participant"):
-                    participants.append(
-                        {
-                            "number": p.findtext("number", ""),
-                            "display_name": p.findtext("displayName", ""),
-                            "state": p.findtext("state", ""),
-                            "start_time": p.findtext("timeInitiated", ""),
-                        }
-                    )
-            hold_raw = (call.findtext("holdStatus") or "false").strip().lower()
-            calls.append(
-                {
-                    "id": call.findtext("id", ""),
-                    "hold": hold_raw == "true",
-                    "recording": call.findtext("recordingStatus", ""),
-                    "recording_file": call.findtext("recordingFile", ""),
-                    "participants": participants,
-                }
-            )
-        self.data["active_calls"] = calls
 
-    def _handle_screenshare_status(self, root: ET.Element) -> None:
-        session = root.find("session")
-        if session is not None:
-            self.data["screen_share_status"] = session.findtext("status", "inactive")
-            self.data["screen_share_url"] = session.findtext("joinUrl")
-        else:
-            self.data["screen_share_status"] = "inactive"
-            self.data["screen_share_url"] = None
-
-    def _handle_phone_status(self, root: ET.Element) -> None:
-        self.data["phone_state"] = root.findtext("state")
-        self.data["phone_call"] = root.findtext("call")
-        max_lines = root.findtext("maxLines")
-        self.data["phone_max_lines"] = int(max_lines) if max_lines else None
-        self.data["phone_account_status"] = root.findtext("accountStatus")
-        self.data["phone_account_failure_code"] = root.findtext("accountFailureCode")
-
-    def _handle_system_info(self, root: ET.Element) -> None:
-        self.data["system_product_version"] = root.findtext("systemProductVersion")
-        self.data["system_product_build"] = root.findtext("systemProductBuild")
-
-    def _handle_system_settings(self, root: ET.Element) -> None:
-        self.data["system_default_call_type"] = root.findtext("defaultCallType")
-        raw = root.findtext("callRightAwayOnceNumberSelected", "false") or "false"
-        self.data["system_call_right_away"] = raw.strip().lower() == "true"
-
-    def _handle_audio_devices(self, root: ET.Element) -> None:
-        devices = []
-        for device in root.findall(".//device"):
-            selected_el = device.find("selected")
-            devices.append(
-                {
-                    "name": device.findtext("name", ""),
-                    "id": device.findtext("id", ""),
-                    "type": device.findtext("type", ""),
-                    "selected": (selected_el.text or "").strip().lower() == "true"
-                    if selected_el is not None
-                    else False,
-                    "role": selected_el.attrib.get("role", "")
-                    if selected_el is not None
-                    else "",
-                }
-            )
-        self.data["audio_devices"] = devices
-
-    def _handle_audio_properties(self, root: ET.Element) -> None:
-        self.data["audio_mute"] = root.findtext("mute")
-        self.data["audio_speaker_mute"] = root.findtext("speakerMute")
-        self.data["audio_speaker"] = root.findtext("speaker")
-        for vol_el in root.findall("volume"):
-            vtype = vol_el.attrib.get("type", "")
-            try:
-                val = int(vol_el.text or "")
-            except (ValueError, TypeError):
-                val = None
-            if vtype == "speaker":
-                self.data["audio_speaker_volume"] = val
-            elif vtype == "microphone":
-                self.data["audio_microphone_volume"] = val
-
-    def _handle_call_options(self, root: ET.Element) -> None:
-        def _bool(tag: str) -> bool | None:
-            val = root.findtext(tag)
-            if val is None:
-                return None
-            return val.strip().lower() == "enabled"
-        self.data["call_option_anonymous"] = _bool("anonymous")
-        self.data["call_option_letters_to_numbers"] = _bool("lettersToNumbers")
-        self.data["call_option_auto_answer"] = _bool("autoAnswer")
-        self.data["call_option_call_waiting"] = _bool("callWaiting")
-
-    def _handle_missed_call(self, root: ET.Element) -> None:
-        raw = root.findtext("count")
-        try:
-            self.data["missed_call_count"] = int(raw) if raw is not None else None
-        except (ValueError, TypeError):
-            self.data["missed_call_count"] = None
-
-    def _handle_voicemail(self, root: ET.Element) -> None:
-        accounts = []
-        for vm in root.findall("voiceMail"):
-            raw_count = vm.findtext("count")
-            try:
-                count = int(raw_count) if raw_count is not None else None
-            except (ValueError, TypeError):
-                count = None
-            accounts.append(
-                {
-                    "account_id": vm.findtext("accountId", ""),
-                    "account_name": vm.findtext("accountName", ""),
-                    "count": count,
-                }
-            )
-        self.data["voicemail_accounts"] = accounts
-
-    def _handle_account_status(self, root: ET.Element) -> None:
-        sip_accounts: list[dict] = []
-        xmpp_accounts: list[dict] = []
-        for acc in root.findall("account"):
-            entry = {
-                "account_name": acc.findtext("accountName", ""),
-                "account_id": acc.findtext("accountId", ""),
-                "type": acc.findtext("type", ""),
-                "enabled": (acc.findtext("enabled") or "false").strip().lower() == "true",
-                "registered": (acc.findtext("registered") or "false").strip().lower() == "true",
+def parse_calls(root: ET.Element) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    for call in root.findall("call"):
+        participants = [
+            {
+                "number": _text(p, "number") or "",
+                "display_name": _text(p, "displayName") or "",
+                "state": _text(p, "state") or "",
+                "start_time": _timestamp(p.findtext("timeInitiated")),
             }
-            if entry["type"] == "sip":
-                sip_accounts.append(entry)
-            elif entry["type"] == "xmpp":
-                xmpp_accounts.append(entry)
-        if sip_accounts:
-            self.data["sip_accounts"] = sip_accounts
-        if xmpp_accounts:
-            self.data["xmpp_accounts"] = xmpp_accounts
-
-    def _handle_supported_presence(self, root: ET.Element) -> None:
-        self.data["supported_presences"] = [
-            el.text for el in root.findall("presenceStatus") if el.text
+            for p in call.findall("participants/participant")
         ]
-
-    def _handle_call_history_response(self, root: ET.Element) -> None:
-        history = []
-        for entry in root.findall("callHistory"):
-            history.append({
-                "type": entry.findtext("type", ""),
-                "number": entry.findtext("number", ""),
-                "display_name": entry.findtext("displayName", ""),
-                "account_id": entry.findtext("accountId", ""),
-                "duration": entry.findtext("duration"),
-                "time_initiated": entry.findtext("timeInitiated"),
-                "id": entry.findtext("id", ""),
-            })
-        self.data["call_history"] = history
-        if getattr(self, "_pending_call_history_service", False):
-            self._pending_call_history_service = False
-            self.hass.bus.async_fire(f"{DOMAIN}_call_history", {"entries": history})
-
-    # ------------------------------------------------------------------
-    # Incoming event handling
-    # ------------------------------------------------------------------
-
-    def _handle_event(self, xml_str: str) -> None:
-        """Handle a statusChange push event from Bria."""
-        root = self._parse_xml(xml_str)
-        if root is None:
-            return
-        # XML can be <event type="call"/> directly or wrapped in another element
-        event_el = root if root.tag == "event" else root.find("event")
-        event_type = (event_el if event_el is not None else root).attrib.get("type", "")
-
-        refresh: dict[str, Any] = {
-            STATUS_CALL: lambda: self._request_status(STATUS_CALL),
-            STATUS_AUTHENTICATION: lambda: self._request_status(STATUS_AUTHENTICATION),
-            STATUS_SCREENSHARE: lambda: self._request_status(STATUS_SCREENSHARE),
-            STATUS_PRESENCE: lambda: self._request_status(STATUS_PRESENCE),
-            STATUS_PHONE: lambda: self._request_status(STATUS_PHONE),
-            STATUS_AUDIO_DEVICES: lambda: self._request_status(STATUS_AUDIO_DEVICES),
-            STATUS_AUDIO_PROPERTIES: lambda: self._request_status(STATUS_AUDIO_PROPERTIES),
-            STATUS_CALL_OPTIONS: lambda: self._request_status(STATUS_CALL_OPTIONS),
-            STATUS_MISSED_CALL: lambda: self._request_status(STATUS_MISSED_CALL),
-            # Bria sends statusChange event type as "voicemail" (lowercase)
-            "voicemail": lambda: self._request_status(STATUS_VOICEMAIL),
-            STATUS_CALLHISTORY: lambda: self._request_status(
-                STATUS_CALLHISTORY,
-                " <count>50</count>\n <entryType>all</entryType>\n",
-            ),
-            STATUS_ACCOUNT: lambda: asyncio.gather(
-                self._request_status(STATUS_ACCOUNT, " <accountType>sip</accountType>\n"),
-                self._request_status(STATUS_ACCOUNT, " <accountType>xmpp</accountType>\n"),
-            ),
-        }
-        if event_type in refresh:
-            self.hass.async_create_task(refresh[event_type]())
-
-    # ------------------------------------------------------------------
-    # WebSocket lifecycle
-    # ------------------------------------------------------------------
-
-    async def _on_connected(self) -> None:
-        self.data["connected"] = True
-        await self._request_status(STATUS_AUTHENTICATION)
-        await self._request_status(STATUS_CALL)
-        await self._request_status(STATUS_SCREENSHARE)
-        await self._request_status(STATUS_PRESENCE)
-        await self._request_status(STATUS_PHONE)
-        await self._request_status(STATUS_SYSTEM_INFO)
-        await self._request_status(STATUS_SYSTEM_SETTINGS)
-        await self._request_status(STATUS_AUDIO_DEVICES)
-        await self._request_status(STATUS_AUDIO_PROPERTIES)
-        await self._request_status(STATUS_CALL_OPTIONS)
-        await self._request_status(STATUS_MISSED_CALL)
-        await self._request_status(STATUS_VOICEMAIL)
-        await self._request_status(
-            STATUS_CALLHISTORY,
-            " <count>50</count>\n <entryType>all</entryType>\n",
+        hold_status = _text(call, "holdStatus") or ""
+        calls.append(
+            {
+                "id": _text(call, "id") or "",
+                "hold_status": hold_status,
+                # offHold / localHold / remoteHold (p. 33); the example also shows onHold.
+                "hold": hold_status not in ("", "offHold"),
+                "recording": _text(call, "recordingStatus") or "",
+                "recording_file": _text(call, "recordingFile") or "",
+                "participants": participants,
+            }
         )
-        await self._request_status(STATUS_ACCOUNT, " <accountType>sip</accountType>\n")
-        await self._request_status(STATUS_ACCOUNT, " <accountType>xmpp</accountType>\n")
-        await self._request_status(STATUS_SUPPORTED_PRESENCE)
+    return calls
 
-    async def _listen(self) -> None:
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
 
-        # If the user configured a specific IP (not the default hostname),
-        # use a custom resolver so the URL hostname still carries the correct
-        # SNI while the TCP connection goes to the right machine.
-        if self._host != DEFAULT_HOST:
-            connector = aiohttp.TCPConnector(resolver=_BriaDNSResolver(self._host))
-        else:
-            connector = aiohttp.TCPConnector()
+def parse_history(root: ET.Element) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": _text(e, "type") or "",
+            "number": _text(e, "number") or "",
+            "display_name": _text(e, "displayName") or "",
+            "account_id": _text(e, "accountId") or "",
+            "duration": _int(e.findtext("duration")),
+            "time_initiated": _timestamp(e.findtext("timeInitiated")),
+            "id": _text(e, "id") or "",
+        }
+        for e in root.findall("callHistory")
+    ]
 
-        try:
-            self._session = aiohttp.ClientSession(connector=connector)
-            async with self._session.ws_connect(
-                self._ws_url, ssl=ssl_ctx
-            ) as ws:
-                self._ws = ws
-                _LOGGER.info(
-                    "Connected to Bria (SNI: %s → %s)", DEFAULT_HOST, self._host
-                )
-                await self._on_connected()
-                self.async_set_updated_data(self.data)
 
-                async for msg in ws:
-                    if msg.type == aiohttp.WSMsgType.TEXT:
-                        parsed = self._parse_message(msg.data)
-                        if parsed["type"] == "response":
-                            self._handle_response(parsed["content"])
-                            self.async_set_updated_data(self.data)
-                        elif parsed["type"] == "event":
-                            self._handle_event(parsed["content"])
-                        elif parsed["type"] == "error":
-                            _LOGGER.warning("Bria API error in message: %.200s", msg.data)
-                    elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
-                        break
-        except aiohttp.ClientConnectorError as err:
-            _LOGGER.warning(
-                "Cannot connect to Bria at %s (%s) — is Bria running? (%s)",
-                self._host,
-                self._ws_url,
-                err,
-            )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Unexpected Bria WebSocket error: %s", err)
-        finally:
-            self._ws = None
-            self.data["connected"] = False
-            if self._session:
-                await self._session.close()
-                self._session = None
-            self.async_set_updated_data(self.data)
+def parse_accounts(root: ET.Element) -> list[dict[str, Any]]:
+    return [
+        {
+            "account_name": _text(a, "accountName") or "",
+            "account_id": _text(a, "accountId") or "",
+            "type": _text(a, "type") or "",
+            "enabled": bool(_bool(a.findtext("enabled"))),
+            "registered": bool(_bool(a.findtext("registered"))),
+        }
+        for a in root.findall("account")
+    ]
 
-    async def _reconnect_loop(self) -> None:
-        while True:
-            await self._listen()
-            _LOGGER.info("Bria disconnected — retrying in 5 seconds...")
-            await asyncio.sleep(5)
+
+def parse_audio_devices(root: ET.Element) -> list[dict[str, Any]]:
+    devices = []
+    for d in root.iter("device"):
+        sel = d.find("selected")
+        roles = (sel.get("role", "") if sel is not None else "").split(",")
+        devices.append(
+            {
+                "name": _text(d, "name") or "",
+                "id": _text(d, "id") or "",
+                "type": _text(d, "type") or "",
+                "selected": bool(_bool(sel.text if sel is not None else None)),
+                "roles": [r.strip() for r in roles if r.strip()],
+            }
+        )
+    return devices
+
+
+def parse_contact(root: ET.Element | None) -> dict[str, Any] | None:
+    contact = root.find("contact") if root is not None else None
+    if contact is None:
+        return None
+    data: dict[str, Any] = {
+        tag: _text(contact, xml_tag)
+        for tag, xml_tag in (
+            ("id", "id"),
+            ("presence_status", "presenceStatus"),
+            ("presence_text", "presenceText"),
+            ("presence_address", "presenceAddress"),
+            ("presence_type", "presenceType"),
+            ("collab_url", "collabUrl"),
+        )
+    }
+    for tag in ("email", "work", "mobile", "home", "fax", "jid", "other", "softphone", "website"):
+        values = [el.text.strip() for el in contact.findall(tag) if el.text and el.text.strip()]
+        if values:
+            data[tag] = values if len(values) > 1 else values[0]
+    return data
+
+
+def version_tuple(version: str | None) -> tuple[int, ...]:
+    parts: list[int] = []
+    for piece in (version or "").split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+    return tuple(parts)
+
+
+# ---------------------------------------------------------------------------
+# Coordinator
+# ---------------------------------------------------------------------------
+
+
+class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Keeps one connection to Bria alive and mirrors its state into ``data``."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=None, config_entry=entry)
+        self.entry = entry
+        self.host: str = entry.data[CONF_HOST]
+        self.port: int = entry.data[CONF_PORT]
+        self.verify_ssl: bool = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        self.client = BriaClient(async_get_clientsession(hass), on_event=self._on_event)
+        self.data = _default_data()
+        self._loop_task: asyncio.Task | None = None
+        self._failures = 0
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        return self.data  # push-only
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def _ssl_context(self) -> ssl.SSLContext | None:
+        """TLS context for the connection. Tests patch this to return None (plain ws)."""
+        return get_default_context() if self.verify_ssl else get_default_no_verify_context()
 
     async def async_start(self) -> None:
-        """Start the persistent WebSocket listener."""
-        self._reconnect_task = self.hass.async_create_task(self._reconnect_loop())
+        self._loop_task = self.entry.async_create_background_task(
+            self.hass, self._connection_loop(), f"{DOMAIN} connection {self.host}"
+        )
 
     async def async_stop(self) -> None:
-        """Stop the WebSocket listener and clean up."""
-        if self._reconnect_task:
-            self._reconnect_task.cancel()
+        if self._loop_task is not None:
+            self._loop_task.cancel()
             try:
-                await self._reconnect_task
+                await self._loop_task
             except asyncio.CancelledError:
                 pass
-        if self._ws and not self._ws.closed:
-            await self._ws.close()
-        if self._session:
-            await self._session.close()
+            self._loop_task = None
+        await self.client.close()
 
-    # ------------------------------------------------------------------
-    # Action methods called by services
-    # ------------------------------------------------------------------
+    async def _connection_loop(self) -> None:
+        delay = BACKOFF_INITIAL
+        while True:
+            started = time.monotonic()
+            await self._connect_once()
+            if time.monotonic() - started >= STABLE_CONNECTION:
+                delay = BACKOFF_INITIAL
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, BACKOFF_MAX)
+
+    async def _connect_once(self) -> None:
+        """Connect, refresh everything, read until the connection drops."""
+        try:
+            await self.client.connect(self.host, self.port, ssl_context=self._ssl_context())
+        except BriaTLSError as err:
+            self._log_failure("TLS verification failed for Bria at %s: %s", self.host, err)
+            self._raise_tls_issue(str(err))
+            return
+        except BriaConnectionError as err:
+            self._log_failure("Cannot connect to Bria at %s:%s: %s", self.host, self.port, err)
+            return
+
+        if self._failures:
+            _LOGGER.info("Reconnected to Bria at %s after %d failed attempts", self.host, self._failures)
+        else:
+            _LOGGER.debug("Connected to Bria at %s", self.host)
+        self._failures = 0
+        ir.async_delete_issue(self.hass, DOMAIN, f"tls_{self.entry.entry_id}")
+
+        self.data["connected"] = True
+        self.async_set_updated_data(self.data)
+        reader = asyncio.create_task(self.client.run())
+        try:
+            await self._refresh_all()
+            await reader
+        finally:
+            if not reader.done():
+                reader.cancel()
+            self.data = _default_data()
+            self.async_set_updated_data(self.data)
+            _LOGGER.debug("Disconnected from Bria at %s", self.host)
+
+    def _log_failure(self, msg: str, *args: Any) -> None:
+        self._failures += 1
+        level = logging.WARNING if self._failures == 1 else logging.DEBUG
+        _LOGGER.log(level, msg, *args)
+
+    def _raise_tls_issue(self, error: str) -> None:
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            f"tls_{self.entry.entry_id}",
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="tls_verification_failed",
+            translation_placeholders={"host": self.host, "error": error},
+        )
+
+    # -- status refreshes -----------------------------------------------------
+
+    async def _refresh_all(self) -> None:
+        await asyncio.gather(
+            *(fn() for fn in self._refreshers().values() if fn is not None),
+            self._refresh_accounts(),
+        )
+
+    def _refreshers(self) -> dict[str, Callable[[], Awaitable[None]]]:
+        """Event type (lower case) -> refresh coroutine."""
+        return {
+            STATUS_AUTHENTICATION.lower(): self._refresh_authentication,
+            STATUS_CALL.lower(): self._refresh_calls,
+            STATUS_PRESENCE.lower(): self._refresh_presence,
+            STATUS_PHONE.lower(): self._refresh_phone,
+            STATUS_SYSTEM_INFO.lower(): self._refresh_system_info,
+            STATUS_SYSTEM_SETTINGS.lower(): self._refresh_system_settings,
+            STATUS_AUDIO_DEVICES.lower(): self._refresh_audio_devices,
+            STATUS_AUDIO_PROPERTIES.lower(): self._refresh_audio_properties,
+            STATUS_CALL_OPTIONS.lower(): self._refresh_call_options,
+            STATUS_MISSED_CALL.lower(): self._refresh_missed_calls,
+            STATUS_VOICEMAIL.lower(): self._refresh_voicemail,
+            STATUS_CALLHISTORY.lower(): self._refresh_history,
+            STATUS_SCREENSHARE.lower(): self._refresh_screenshare,
+            STATUS_SUPPORTED_PRESENCE.lower(): self._refresh_supported_presence,
+        }
+
+    @callback
+    def _on_event(self, event_type: str) -> None:
+        etype = event_type.lower()
+        if etype == STATUS_ACCOUNT:
+            refresh: Callable[[], Awaitable[None]] | None = self._refresh_accounts
+        else:
+            refresh = self._refreshers().get(etype)
+        if refresh is None:
+            _LOGGER.debug("Ignoring Bria event %s", event_type)
+            return
+        self.entry.async_create_background_task(
+            self.hass, refresh(), f"{DOMAIN} refresh {etype}"
+        )
+
+    async def _fetch(self, status_type: str, *extra: ET.Element) -> ET.Element | None:
+        """Request a status; None on any Bria error (logged at debug)."""
+        try:
+            resp = await self.client.status(status_type, *extra)
+        except BriaError as err:
+            _LOGGER.debug("Status %s failed: %s", status_type, err)
+            return None
+        return resp.root
+
+    def _apply(self, **values: Any) -> None:
+        if not self.client.connected:
+            return  # a late reply after disconnect must not resurrect state
+        self.data.update(values)
+        self.async_set_updated_data(self.data)
+
+    async def _refresh_authentication(self) -> None:
+        if (root := await self._fetch(STATUS_AUTHENTICATION)) is not None:
+            self._apply(
+                authenticated=bool(_bool(root.findtext("authenticated"))),
+                auth_reason=_text(root, "notAuthenticatedReason"),
+                auth_server_reason=_text(root, "serverProvidedReason"),
+            )
+
+    async def _refresh_calls(self) -> None:
+        if (root := await self._fetch(STATUS_CALL)) is not None:
+            self._apply(active_calls=parse_calls(root))
+
+    async def _refresh_presence(self) -> None:
+        if (root := await self._fetch(STATUS_PRESENCE)) is not None:
+            self._apply(
+                presence_status=_text(root, "presenceStatus"),
+                presence_text=_text(root, "presenceText"),
+            )
+
+    async def _refresh_supported_presence(self) -> None:
+        if (root := await self._fetch(STATUS_SUPPORTED_PRESENCE)) is not None:
+            self._apply(
+                supported_presences=[
+                    el.text.strip() for el in root.findall("presenceStatus") if el.text
+                ]
+            )
+
+    async def _refresh_phone(self) -> None:
+        if (root := await self._fetch(STATUS_PHONE)) is not None:
+            self._apply(
+                phone_state=_text(root, "state"),
+                phone_call=_text(root, "call"),
+                phone_max_lines=_int(root.findtext("maxLines")),
+                phone_account_status=_text(root, "accountStatus"),
+                phone_account_failure_code=_text(root, "accountFailureCode"),
+            )
+
+    async def _refresh_system_info(self) -> None:
+        if (root := await self._fetch(STATUS_SYSTEM_INFO)) is not None:
+            self._apply(
+                system_company_name=_text(root, "systemCompanyName"),
+                system_product_name=_text(root, "systemProductName"),
+                system_product_version=_text(root, "systemProductVersion"),
+                system_product_build=_text(root, "systemProductBuild"),
+            )
+
+    async def _refresh_system_settings(self) -> None:
+        if (root := await self._fetch(STATUS_SYSTEM_SETTINGS)) is not None:
+            self._apply(
+                system_default_call_type=_text(root, "defaultCallType"),
+                system_call_right_away=_bool(root.findtext("callRightAwayOnceNumberSelected")),
+            )
+
+    async def _refresh_audio_devices(self) -> None:
+        # Bria 6.8 answers this with <status type="deviceConfiguration">, so the
+        # reply is matched by transaction, never by its type attribute.
+        if (root := await self._fetch(STATUS_AUDIO_DEVICES)) is not None:
+            self._apply(audio_devices=parse_audio_devices(root))
+
+    async def _refresh_audio_properties(self) -> None:
+        if (root := await self._fetch(STATUS_AUDIO_PROPERTIES)) is None:
+            return
+        values: dict[str, Any] = {
+            "audio_mute": _text(root, "mute"),
+            "audio_speaker_mute": _text(root, "speakerMute"),
+            "audio_speaker": _text(root, "speaker"),
+        }
+        for vol in root.findall("volume"):
+            key = {"speaker": "audio_speaker_volume", "microphone": "audio_microphone_volume"}.get(
+                vol.get("type", "")
+            )
+            if key:
+                values[key] = _int(vol.text)
+        self._apply(**values)
+
+    async def _refresh_call_options(self) -> None:
+        if (root := await self._fetch(STATUS_CALL_OPTIONS)) is not None:
+            self._apply(
+                call_option_anonymous=_bool(root.findtext("anonymous")),
+                call_option_letters_to_numbers=_bool(root.findtext("lettersToNumbers")),
+                call_option_auto_answer=_bool(root.findtext("autoAnswer")),
+                call_option_call_waiting=_bool(root.findtext("callWaiting")),
+            )
+
+    async def _refresh_missed_calls(self) -> None:
+        # NOTE: per the API guide (p. 50-51) this query may reset Bria's own
+        # missed-call counter. Pending live verification (PLAN V3).
+        if (root := await self._fetch(STATUS_MISSED_CALL)) is not None:
+            self._apply(missed_call_count=_int(root.findtext("count")))
+
+    async def _refresh_voicemail(self) -> None:
+        if (root := await self._fetch(STATUS_VOICEMAIL)) is not None:
+            self._apply(
+                voicemail_accounts=[
+                    {
+                        "account_id": _text(vm, "accountId") or "",
+                        "account_name": _text(vm, "accountName") or "",
+                        "count": _int(vm.findtext("count")),
+                    }
+                    for vm in root.findall("voiceMail")
+                ]
+            )
+
+    async def _refresh_accounts(self) -> None:
+        sip, xmpp = await asyncio.gather(
+            self._fetch(STATUS_ACCOUNT, xml_el("accountType", "sip")),
+            self._fetch(STATUS_ACCOUNT, xml_el("accountType", "xmpp")),
+        )
+        values: dict[str, Any] = {}
+        if sip is not None:
+            values["sip_accounts"] = parse_accounts(sip)
+        if xmpp is not None:
+            values["xmpp_accounts"] = parse_accounts(xmpp)
+        if values:
+            self._apply(**values)
+
+    async def _refresh_history(self) -> None:
+        root = await self._fetch(
+            STATUS_CALLHISTORY, xml_el("count", HISTORY_COUNT), xml_el("entryType", "all")
+        )
+        if root is not None:
+            self._apply(call_history=parse_history(root))
+
+    async def _refresh_screenshare(self) -> None:
+        if self.data.get("screen_share_supported") is False:
+            return
+        try:
+            resp = await self.client.status(STATUS_SCREENSHARE)
+        except BriaBadRequest:
+            _LOGGER.info("Bria at %s does not support screen sharing", self.host)
+            self._apply(screen_share_supported=False)
+            return
+        except BriaError as err:
+            _LOGGER.debug("Status screenShare failed: %s", err)
+            return
+        session = resp.root.find("session") if resp.root is not None else None
+        self._apply(
+            screen_share_supported=True,
+            screen_share_status=(_text(session, "status") or "inactive") if session is not None else "inactive",
+            screen_share_url=_text(session, "joinUrl") if session is not None else None,
+        )
+
+    # -- actions ------------------------------------------------------------------
+
+    async def _action(self, path: str, body: ET.Element | None = None) -> BriaResponse:
+        try:
+            return await self.client.request(path, body)
+        except BriaError as err:
+            raise HomeAssistantError(f"Bria {path} failed: {err}") from err
 
     async def async_set_presence(self, status: str, text: str = "") -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<presence>"
-            f"<presenceStatus>{_xe(status)}</presenceStatus>"
-            f"<presenceText>{_xe(text)}</presenceText>"
-            f"</presence>"
+        await self._action(
+            "setPresence",
+            xml_el("presence", None, xml_el("presenceStatus", status), xml_el("presenceText", text)),
         )
-        # API requires GET /setPresence, not GET /status
-        await self._send("setPresence", body)
-        # Explicitly refresh presence so text/status are in sync regardless
-        # of whether Bria fires a statusChange event for API-initiated changes.
-        await self._request_status(STATUS_PRESENCE)
+        await self._refresh_presence()
 
-    async def async_place_call(self, number: str, suppress_gui: bool = False) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f'<dial type="audio">\n'
-            f" <number>{_xe(number)}</number>\n"
-            f" <displayName></displayName>\n"
-            f" <suppressMainWindow>{str(suppress_gui).lower()}</suppressMainWindow>\n"
-            f"</dial>"
+    async def async_place_call(
+        self,
+        number: str,
+        suppress_gui: bool = False,
+        *,
+        call_type: str = "audio",
+        display_name: str | None = None,
+        account_id: str | None = None,
+    ) -> None:
+        await self._action(
+            "call",
+            xml_el(
+                "dial",
+                None,
+                xml_el("number", number),
+                xml_el("displayName", display_name or ""),
+                xml_el("suppressMainWindow", suppress_gui),
+                xml_el("accountId", account_id) if account_id else None,
+                type=call_type,
+            ),
         )
-        await self._send("call", body)
 
     async def async_answer_call(self, call_id: str, with_video: bool = False) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<answerCall>\n"
-            f" <callId>{_xe(call_id)}</callId>\n"
-            f" <withVideo>{str(with_video).lower()}</withVideo>\n"
-            f"</answerCall>"
+        await self._action(
+            "answer", xml_el("answerCall", None, xml_el("callId", call_id), xml_el("withVideo", with_video))
         )
-        await self._send("answer", body)
 
     async def async_end_call(self, call_id: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<endCall>\n <callId>{_xe(call_id)}</callId>\n</endCall>"
-        )
-        await self._send("endCall", body)
+        await self._action("endCall", xml_el("endCall", None, xml_el("callId", call_id)))
 
     async def async_hold_call(self, call_id: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<holdCall>\n <callId>{_xe(call_id)}</callId>\n</holdCall>"
-        )
-        await self._send("hold", body)
+        await self._action("hold", xml_el("holdCall", None, xml_el("callId", call_id)))
 
     async def async_resume_call(self, call_id: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<resumeCall>\n <callId>{_xe(call_id)}</callId>\n</resumeCall>"
-        )
-        await self._send("resume", body)
+        await self._action("resume", xml_el("resumeCall", None, xml_el("callId", call_id)))
 
     async def async_transfer_call(
         self, call_id: str, target_number: str | None = None, target_call_id: str | None = None
     ) -> None:
-        parts = [
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<transferCall>\n <callId>{_xe(call_id)}</callId>\n"
-        ]
         if target_call_id:
-            parts.append(f" <targetCallId>{_xe(target_call_id)}</targetCallId>\n")
+            target = xml_el("targetCallId", target_call_id)
         elif target_number:
-            parts.append(f" <targetNumber>{_xe(target_number)}</targetNumber>\n")
-        parts.append("</transferCall>")
-        await self._send("transferCall", "".join(parts))
+            # Bria before 6.2.0 expects <target> instead of <targetNumber> (p. 38).
+            legacy = version_tuple(self.data.get("system_product_version")) < (6, 2)
+            target = xml_el("target" if legacy and self.data.get("system_product_version") else "targetNumber", target_number)
+        else:
+            raise HomeAssistantError("transfer_call needs target_number or target_call_id")
+        await self._action("transferCall", xml_el("transferCall", None, xml_el("callId", call_id), target))
 
     async def async_bring_to_front(self, window: str = "main") -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<bringToFront><window>{_xe(window)}</window></bringToFront>"
-        )
-        await self._send("bringToFront", body)
+        await self._action("bringToFront", xml_el("bringToFront", None, xml_el("window", window)))
 
     async def async_start_attended_transfer(self, call_id: str, target_number: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<startAttendedTransferCall>\n"
-            f" <callId>{_xe(call_id)}</callId>\n"
-            f" <targetNumber>{_xe(target_number)}</targetNumber>\n"
-            f"</startAttendedTransferCall>"
+        await self._action(
+            "startAttendedTransferCall",
+            xml_el(
+                "startAttendedTransferCall",
+                None,
+                xml_el("callId", call_id),
+                xml_el("targetNumber", target_number),
+            ),
         )
-        await self._send("startAttendedTransferCall", body)
 
     async def async_merge_calls(self, call_id: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<merge>\n <callId>{_xe(call_id)}</callId>\n</merge>"
-        )
-        await self._send("merge", body)
+        await self._action("merge", xml_el("merge", None, xml_el("callId", call_id)))
 
     async def async_set_call_options(
         self,
@@ -668,77 +624,47 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         auto_answer: str | None = None,
         call_waiting: str | None = None,
     ) -> None:
-        parts = ["<?xml version='1.0' encoding='UTF-8'?><callOptions>"]
-        if anonymous is not None:
-            parts.append(f"<anonymous>{anonymous}</anonymous>")
-        if letters_to_numbers is not None:
-            parts.append(f"<lettersToNumbers>{letters_to_numbers}</lettersToNumbers>")
-        if auto_answer is not None:
-            parts.append(f"<autoAnswer>{auto_answer}</autoAnswer>")
-        if call_waiting is not None:
-            parts.append(f"<callWaiting>{call_waiting}</callWaiting>")
-        parts.append("</callOptions>")
-        await self._send("callOptions", "".join(parts))
-        await self._request_status(STATUS_CALL_OPTIONS)
-
-    async def async_check_voicemail(
-        self, account_id: str, suppress_gui: bool = True
-    ) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<checkVoiceMail>\n"
-            f" <accountId>{_xe(account_id)}</accountId>\n"
-            f" <suppressMainWindow>{str(suppress_gui).lower()}</suppressMainWindow>\n"
-            f"</checkVoiceMail>"
-        )
-        await self._send("checkVoiceMail", body)
-
-    async def async_get_contact(self, email: str) -> None:
-        """Look up a contact by email and fire a HA event with the result."""
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<status>\n <type>contact</type>\n <email>{_xe(email)}</email>\n</status>"
-        )
-        # Response is handled in _handle_response → dispatched back here via event
-        self._pending_contact_email = email
-        await self._send("status", body)
-
-    def _handle_contact_status(self, root: ET.Element) -> None:
-        contact_el = root.find("contact")
-        if contact_el is None:
-            self.hass.bus.async_fire(
-                f"{DOMAIN}_contact_lookup",
-                {"email": getattr(self, "_pending_contact_email", None), "found": False},
-            )
-            return
-        data: dict[str, Any] = {
-            "found": True,
-            "id": contact_el.findtext("id"),
-            "email": contact_el.findtext("email"),
-            "presence_status": contact_el.findtext("presenceStatus"),
-            "presence_text": contact_el.findtext("presenceText"),
-            "presence_address": contact_el.findtext("presenceAddress"),
-            "presence_type": contact_el.findtext("presenceType"),
-            "collab_url": contact_el.findtext("collabUrl"),
+        opts = {
+            "anonymous": anonymous,
+            "lettersToNumbers": letters_to_numbers,
+            "autoAnswer": auto_answer,
+            "callWaiting": call_waiting,
         }
-        for tag in ("work", "mobile", "home", "fax", "jid", "other", "softphone"):
-            values = [el.text for el in contact_el.findall(tag) if el.text]
-            if values:
-                data[tag] = values if len(values) > 1 else values[0]
-        self.hass.bus.async_fire(f"{DOMAIN}_contact_lookup", data)
+        await self._action(
+            "callOptions",
+            xml_el("callOptions", None, *(xml_el(k, v) for k, v in opts.items() if v is not None)),
+        )
+        await self._refresh_call_options()
+
+    async def async_check_voicemail(self, account_id: str, suppress_gui: bool = True) -> None:
+        await self._action(
+            "checkVoiceMail",
+            xml_el(
+                "checkVoiceMail",
+                None,
+                xml_el("accountId", account_id),
+                xml_el("suppressMainWindow", suppress_gui),
+            ),
+        )
+
+    async def async_get_contact(self, email: str) -> dict[str, Any]:
+        """Look up a contact by email. Fires bria_contact_lookup and returns the result."""
+        try:
+            resp = await self.client.status("contact", xml_el("email", email))
+        except BriaError as err:
+            raise HomeAssistantError(f"Bria contact lookup failed: {err}") from err
+        contact = parse_contact(resp.root)
+        result: dict[str, Any] = (
+            {"found": True, **contact} if contact else {"found": False, "email": email}
+        )
+        self.hass.bus.async_fire(f"{DOMAIN}_contact_lookup", result)
+        return result
 
     async def async_sign_in(self, username: str, password: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<signIn>\n"
-            f" <user>{_xe(username)}</user>\n"
-            f" <password>{_xe(password)}</password>\n"
-            f"</signIn>"
-        )
-        await self._send("signIn", body)
+        await self._action("signIn", xml_el("signIn", None, xml_el("user", username), xml_el("password", password)))
 
     async def async_sign_out(self) -> None:
-        await self._send("signOut")
+        await self._action("signOut")
 
     async def async_set_audio_properties(
         self,
@@ -748,136 +674,122 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         speaker_volume: int | None = None,
         microphone_volume: int | None = None,
     ) -> None:
-        parts = ["<?xml version='1.0' encoding='UTF-8'?><audioProperties>"]
-        if mute is not None:
-            parts.append(f"<mute>{mute}</mute>")
-        if speaker_mute is not None:
-            parts.append(f"<speakerMute>{speaker_mute}</speakerMute>")
-        if speaker is not None:
-            parts.append(f"<speaker>{speaker}</speaker>")
-        if speaker_volume is not None:
-            parts.append(f'<volume type="speaker">{speaker_volume}</volume>')
-        if microphone_volume is not None:
-            parts.append(f'<volume type="microphone">{microphone_volume}</volume>')
-        parts.append("</audioProperties>")
-        await self._send("audioProperties", "".join(parts))
-        await self._request_status(STATUS_AUDIO_PROPERTIES)
+        children = [
+            xml_el("mute", mute) if mute is not None else None,
+            xml_el("speakerMute", speaker_mute) if speaker_mute is not None else None,
+            xml_el("speaker", speaker) if speaker is not None else None,
+            xml_el("volume", speaker_volume, type="speaker") if speaker_volume is not None else None,
+            xml_el("volume", microphone_volume, type="microphone")
+            if microphone_volume is not None
+            else None,
+        ]
+        await self._action("audioProperties", xml_el("audioProperties", None, *children))
+        await self._refresh_audio_properties()
 
-    async def async_select_audio_devices(
-        self, devices: list[dict[str, str]]
-    ) -> None:
-        parts = ["<?xml version='1.0' encoding='UTF-8'?><devices>"]
-        for d in devices:
-            parts.append(
-                f" <device>"
-                f"<name>{d['name']}</name>"
-                f"<id>{d['id']}</id>"
-                f"<type>{d['type']}</type>"
-                f"<role>{d['role']}</role>"
-                f"</device>"
-            )
-        parts.append("</devices>")
-        await self._send("selectAudioDevices", "".join(parts))
-        await self._request_status(STATUS_AUDIO_DEVICES)
+    async def async_select_audio_devices(self, devices: list[dict[str, str]]) -> None:
+        await self._action(
+            "selectAudioDevices",
+            xml_el(
+                "devices",
+                None,
+                *(
+                    xml_el(
+                        "device",
+                        None,
+                        xml_el("name", d["name"]),
+                        xml_el("id", d["id"]),
+                        xml_el("type", d["type"]),
+                        xml_el("role", d["role"]),
+                    )
+                    for d in devices
+                ),
+            ),
+        )
+        await self._refresh_audio_devices()
 
     async def async_exit(self) -> None:
-        """Exit the Bria application."""
-        await self._send("exit")
+        await self._action("exit")
 
     async def async_send_dtmf(self, digit: str, tone: str = "start") -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f'<dtmf>\n <tone digit="{_xe(digit)}">{_xe(tone)}</tone>\n</dtmf>'
-        )
-        await self._send("dtmf", body)
+        await self._action("dtmf", xml_el("dtmf", None, xml_el("tone", tone, digit=digit)))
 
     async def async_start_call_recording(
         self, filename: str, call_id: str | None = None, suppress_popup: bool = True
     ) -> None:
-        parts = [
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            "<startCallRecording>\n"
-        ]
-        if call_id:
-            parts.append(f" <callId>{_xe(call_id)}</callId>\n")
-        parts.append(f" <filename>{_xe(filename)}</filename>\n")
-        parts.append(f" <suppressPopup>{str(suppress_popup).lower()}</suppressPopup>\n")
-        parts.append("</startCallRecording>")
-        await self._send("startCallRecording", "".join(parts))
+        await self._action(
+            "startCallRecording",
+            xml_el(
+                "startCallRecording",
+                None,
+                xml_el("callId", call_id) if call_id else None,
+                xml_el("filename", filename),
+                xml_el("suppressPopup", suppress_popup),
+            ),
+        )
 
     async def async_stop_call_recording(self, call_id: str | None = None) -> None:
-        if call_id:
-            body = (
-                "<?xml version='1.0' encoding='UTF-8'?>"
-                f"<stopCallRecording>\n <callId>{_xe(call_id)}</callId>\n</stopCallRecording>"
-            )
-        else:
-            body = (
-                "<?xml version='1.0' encoding='UTF-8'?>"
-                "<stopCallRecording/>"
-            )
-        await self._send("stopCallRecording", body)
-
-    async def async_show_history(
-        self, history_type: str = "all", text: str = ""
-    ) -> None:
-        parts = [
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            "<filter>\n"
-            f" <type>{_xe(history_type)}</type>\n"
-        ]
-        if text:
-            parts.append(f" <text>{_xe(text)}</text>\n")
-        parts.append("</filter>")
-        await self._send("showHistory", "".join(parts))
-
-    async def async_get_call_history(
-        self, count: int = 10, entry_type: str = "all"
-    ) -> None:
-        """Request call history and fire a bria_call_history HA event with results."""
-        self._pending_call_history_service = True
-        await self._request_status(
-            "callHistory",
-            f" <count>{count}</count>\n <entryType>{entry_type}</entryType>\n",
+        await self._action(
+            "stopCallRecording",
+            xml_el("stopCallRecording", None, xml_el("callId", call_id) if call_id else None),
         )
 
-    async def async_get_call_history_item(self, item_id: str) -> None:
-        """Request a single call history entry and fire a bria_call_history HA event."""
-        self._pending_call_history_service = True
-        await self._request_status(
-            "callHistoryItem",
-            f" <id>{item_id}</id>\n",
+    async def async_show_history(self, history_type: str = "all", text: str = "") -> None:
+        await self._action(
+            "showHistory",
+            xml_el("filter", None, xml_el("type", history_type), xml_el("text", text) if text else None),
         )
+
+    async def async_get_call_history(self, count: int = 10, entry_type: str = "all") -> list[dict[str, Any]]:
+        """Fetch history without touching the Call History sensor. Fires bria_call_history."""
+        try:
+            resp = await self.client.status(
+                STATUS_CALLHISTORY, xml_el("count", count), xml_el("entryType", entry_type)
+            )
+        except BriaError as err:
+            raise HomeAssistantError(f"Bria call history failed: {err}") from err
+        entries = parse_history(resp.root) if resp.root is not None else []
+        self.hass.bus.async_fire(f"{DOMAIN}_call_history", {"entries": _jsonable(entries)})
+        return entries
+
+    async def async_get_call_history_item(self, item_id: str) -> list[dict[str, Any]]:
+        try:
+            resp = await self.client.status("callHistoryItem", xml_el("id", item_id))
+        except BriaError as err:
+            raise HomeAssistantError(f"Bria call history item failed: {err}") from err
+        entries = parse_history(resp.root) if resp.root is not None else []
+        self.hass.bus.async_fire(f"{DOMAIN}_call_history", {"entries": _jsonable(entries)})
+        return entries
 
     async def async_start_im(self, address: str, im_type: str = "sip") -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f'<im type="{_xe(im_type)}">\n <address>{_xe(address)}</address>\n</im>'
-        )
-        await self._send("im", body)
+        await self._action("im", xml_el("im", None, xml_el("address", address), type=im_type))
 
-    async def async_start_screen_share(
-        self, invitees: list[dict[str, str]]
-    ) -> None:
-        parts = [
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            "<invitees>\n"
-        ]
-        for inv in invitees:
-            addr_type = inv.get("type", "simple")
-            address = inv.get("address", "")
-            parts.append(
-                f' <invitee>\n  <address type="{_xe(addr_type)}">{_xe(address)}</address>\n </invitee>\n'
-            )
-        parts.append("</invitees>")
-        await self._send("startScreenShare", "".join(parts))
+    async def async_start_screen_share(self, invitees: list[dict[str, str]]) -> None:
+        await self._action(
+            "startScreenShare",
+            xml_el(
+                "invitees",
+                None,
+                *(
+                    xml_el(
+                        "invitee",
+                        None,
+                        xml_el("address", inv.get("address", ""), type=inv.get("type", "simple")),
+                    )
+                    for inv in invitees
+                ),
+            ),
+        )
 
     async def async_start_collab(self) -> None:
-        await self._send("startCollab")
+        await self._action("startCollab")
 
     async def async_join_collab(self, collab_url: str) -> None:
-        body = (
-            "<?xml version='1.0' encoding='UTF-8'?>"
-            f"<joinCollab>\n <collabUrl>{_xe(collab_url)}</collabUrl>\n</joinCollab>"
-        )
-        await self._send("joinCollab", body)
+        await self._action("joinCollab", xml_el("joinCollab", None, xml_el("collabUrl", collab_url)))
+
+
+def _jsonable(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Event payloads must be JSON-serialisable: datetimes become ISO strings."""
+    return [
+        {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in e.items()}
+        for e in entries
+    ]

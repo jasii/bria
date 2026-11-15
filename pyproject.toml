@@ -9,6 +9,7 @@ dev = [
     # Pinned to the newest harness available. It bundles homeassistant==2026.10.4;
     # the live install is Core 2026.11.1. Bump when a 2026.11 harness is published.
     "pytest-homeassistant-custom-component==0.13.375",
+    "defusedxml==0.7.1",
 ]
 
 [tool.pytest.ini_options]

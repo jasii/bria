@@ -78,7 +78,7 @@ class _BriaBaseSensor(CoordinatorEntity[BriaCoordinator], SensorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         return {
-            "identifiers": {(DOMAIN, self.coordinator._host)},
+            "identifiers": {(DOMAIN, self.coordinator.host)},
             "name": "Bria VoIP",
             "manufacturer": "CounterPath",
             "model": "Bria Desktop",
@@ -310,10 +310,8 @@ class BriaCallHistorySensor(_BriaBaseSensor):
                 }
             g = groups[num]
             g["count"] += 1
-            try:
-                ts = int(e.get("time_initiated") or 0)
-            except (ValueError, TypeError):
-                ts = 0
+            when = e.get("time_initiated")
+            ts = int(when.timestamp()) if when else 0
             if ts > g["last_time_ts"]:
                 g["last_time_ts"] = ts
                 g["last_type"] = e["type"]

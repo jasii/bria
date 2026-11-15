@@ -10,7 +10,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import CONF_HOST, CONF_PORT, DOMAIN, PRESENCE_OPTIONS
+from .const import DOMAIN, PRESENCE_OPTIONS
 from .coordinator import BriaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,9 +20,7 @@ PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Bria VoIP from a config entry."""
-    coordinator = BriaCoordinator(
-        hass, entry.data[CONF_HOST], entry.data[CONF_PORT]
-    )
+    coordinator = BriaCoordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await coordinator.async_start()

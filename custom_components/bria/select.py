@@ -39,7 +39,7 @@ class BriaPresenceSelect(CoordinatorEntity[BriaCoordinator], SelectEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         return {
-            "identifiers": {(DOMAIN, self.coordinator._host)},
+            "identifiers": {(DOMAIN, self.coordinator.host)},
             "name": "Bria VoIP",
             "manufacturer": "CounterPath",
             "model": "Bria Desktop",

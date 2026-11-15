@@ -7,6 +7,9 @@ DEFAULT_PORT = 9002
 
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_VERIFY_SSL = "verify_ssl"
+
+DEFAULT_VERIFY_SSL = True
 
 WS_PATH = "/counterpath/socketapi/v1/"
 
@@ -14,7 +17,7 @@ WS_PATH = "/counterpath/socketapi/v1/"
 STATUS_AUTHENTICATION = "authentication"
 STATUS_CALL = "call"
 STATUS_CALLHISTORY = "callHistory"
-STATUS_SCREENSHARE = "screenshare"
+STATUS_SCREENSHARE = "screenShare"
 STATUS_PRESENCE = "presence"
 STATUS_PHONE = "phone"
 STATUS_SYSTEM_INFO = "systemInformation"
