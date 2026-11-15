@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 import copy
 from datetime import UTC, datetime
 import logging
+from pathlib import Path
 import ssl
 import time
 from typing import Any
@@ -17,7 +18,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from homeassistant.util.ssl import get_default_context, get_default_no_verify_context
+from homeassistant.util.ssl import (
+    SSL_ALPN_HTTP11,
+    SSLCipherList,
+    create_client_context,
+    get_default_no_verify_context,
+)
 
 from .api import (
     BriaBadRequest,
@@ -52,6 +58,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Bria serves its certificate without the issuing intermediate, so a plain
+# certifi store cannot build the chain. Ship the public intermediate.
+INTERMEDIATE_CA = Path(__file__).parent / "certs" / "rapidssl_tls_rsa_ca_g1.pem"
+
+
+def build_verify_context() -> ssl.SSLContext:
+    """Default client context plus Bria's intermediate CA. Blocking: run in an executor."""
+    ctx = create_client_context(SSLCipherList.PYTHON_DEFAULT, SSL_ALPN_HTTP11)
+    ctx.load_verify_locations(cafile=str(INTERMEDIATE_CA))
+    return ctx
 
 BACKOFF_INITIAL = 5.0
 BACKOFF_MAX = 60.0
@@ -255,15 +272,20 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.data = _default_data()
         self._loop_task: asyncio.Task | None = None
         self._failures = 0
+        self._verify_context: ssl.SSLContext | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         return self.data  # push-only
 
     # -- lifecycle -----------------------------------------------------------
 
-    def _ssl_context(self) -> ssl.SSLContext | None:
+    async def _ssl_context(self) -> ssl.SSLContext | None:
         """TLS context for the connection. Tests patch this to return None (plain ws)."""
-        return get_default_context() if self.verify_ssl else get_default_no_verify_context()
+        if not self.verify_ssl:
+            return get_default_no_verify_context()
+        if self._verify_context is None:
+            self._verify_context = await self.hass.async_add_executor_job(build_verify_context)
+        return self._verify_context
 
     async def async_start(self) -> None:
         self._loop_task = self.entry.async_create_background_task(
@@ -293,7 +315,7 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _connect_once(self) -> None:
         """Connect, refresh everything, read until the connection drops."""
         try:
-            await self.client.connect(self.host, self.port, ssl_context=self._ssl_context())
+            await self.client.connect(self.host, self.port, ssl_context=await self._ssl_context())
         except BriaTLSError as err:
             self._log_failure("TLS verification failed for Bria at %s: %s", self.host, err)
             self._raise_tls_issue(str(err))

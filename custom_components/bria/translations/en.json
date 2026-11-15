@@ -172,7 +172,7 @@
   "issues": {
     "tls_verification_failed": {
       "title": "Bria certificate could not be verified",
-      "description": "Home Assistant could not verify the TLS certificate of Bria at {host}: {error}\n\nBria ships a certificate for cpclientapi.softphone.com that expires periodically; updating Bria usually fixes this. As a last resort, reconfigure the integration and turn off certificate verification, but only if TCP port 9002 on that machine is firewalled to Home Assistant's addresses."
+      "description": "Home Assistant could not verify the TLS certificate of Bria at {host}: {error}\n\nThe integration trusts Bria's certificate for cpclientapi.softphone.com through its RapidSSL intermediate. If this fails, Bria's certificate has probably expired or changed issuer; updating Bria and this integration usually fixes it. As a last resort, reconfigure the integration and turn off certificate verification, but only if TCP port 9002 on that machine is firewalled to Home Assistant's addresses."
     }
   },
   "exceptions": {

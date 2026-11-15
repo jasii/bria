@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 from collections.abc import AsyncGenerator
 
 import aiohttp
@@ -148,3 +149,14 @@ async def test_connect_refused(socket_enabled: None) -> None:
         c = BriaClient(session)
         with pytest.raises(BriaConnectionError):
             await c.connect("127.0.0.1", 1, ssl_context=None, timeout=2)
+
+
+def test_verify_context_includes_bria_intermediate() -> None:
+    """Bria sends no chain; the bundled RapidSSL intermediate must be trusted."""
+    from custom_components.bria.coordinator import build_verify_context
+
+    ctx = build_verify_context()
+    subjects = [dict(x[0] for x in c["subject"]).get("commonName") for c in ctx.get_ca_certs()]
+    assert "RapidSSL TLS RSA CA G1" in subjects
+    assert "DigiCert Global Root G2" in subjects
+    assert ctx.verify_mode is ssl.CERT_REQUIRED and ctx.check_hostname
