@@ -19,6 +19,12 @@ set_presence:
       description: Optional presence text message shown to contacts.
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 place_call:
   name: Place Call
@@ -36,10 +42,35 @@ place_call:
       default: false
       selector:
         boolean:
+    call_type:
+      name: Call type
+      default: audio
+      selector:
+        select:
+          options:
+            - audio
+            - video
+            - conference
+    display_name:
+      name: Display name
+      description: Name shown in Bria for this call.
+      selector:
+        text:
+    account_id:
+      name: Account ID
+      description: Bria account to call from (see the Registered Accounts sensor). Default account if omitted.
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 answer_call:
   name: Answer Call
-  description: Answer an incoming call. Uses the first active call if no ID is supplied.
+  description: Answer an incoming call. Without a call ID, answers the ringing call on whichever computer it rings.
   fields:
     call_id:
       name: Call ID
@@ -52,6 +83,12 @@ answer_call:
       default: false
       selector:
         boolean:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 end_call:
   name: End Call
@@ -60,6 +97,12 @@ end_call:
     call_id:
       name: Call ID
       description: ID of the specific call to end (optional).
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -72,6 +115,12 @@ hold_call:
       description: ID of the specific call to hold (optional).
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 resume_call:
   name: Resume Call
@@ -80,6 +129,12 @@ resume_call:
     call_id:
       name: Call ID
       description: ID of the specific call to resume (optional).
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -102,6 +157,12 @@ transfer_call:
       description: ID of the specific call to transfer (optional, uses first active call).
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 start_attended_transfer:
   name: Start Attended Transfer
@@ -118,6 +179,12 @@ start_attended_transfer:
       description: ID of the call to transfer (optional, uses first active call).
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 merge_calls:
   name: Merge Calls
@@ -127,6 +194,12 @@ merge_calls:
       name: Call ID
       description: ID of the active (not-on-hold) call to use as the merge anchor.
       required: true
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -166,6 +239,12 @@ set_call_options:
           options:
             - "enabled"
             - "disabled"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 bring_to_front:
   name: Bring to Front
@@ -180,6 +259,12 @@ bring_to_front:
           options:
             - "main"
             - "collab"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 sign_in:
   name: Sign In
@@ -198,10 +283,23 @@ sign_in:
       selector:
         text:
           type: password
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 sign_out:
   name: Sign Out
   description: Sign out from Bria. Admin only; needs "Allow sign in, sign out and exit" in the integration's safety options.
+  fields:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 set_audio_properties:
   name: Set Audio Properties
@@ -247,6 +345,12 @@ set_audio_properties:
           min: 0
           max: 100
           unit_of_measurement: "%"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 select_audio_devices:
   name: Select Audio Devices
@@ -259,6 +363,12 @@ select_audio_devices:
       required: true
       selector:
         object:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 check_voicemail:
   name: Check Voicemail
@@ -276,6 +386,12 @@ check_voicemail:
       default: true
       selector:
         boolean:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 get_contact:
   name: Get Contact
@@ -289,10 +405,23 @@ get_contact:
       required: true
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 exit:
   name: Exit Bria
   description: Exit the Bria application. Bria logs out and moves to the background (or asks the user if a call is active). Admin only; needs "Allow sign in, sign out and exit" in the integration's safety options.
+  fields:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 send_dtmf:
   name: Send DTMF
@@ -326,6 +455,12 @@ send_dtmf:
           options:
             - "start"
             - "stop"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 start_call_recording:
   name: Start Call Recording
@@ -348,6 +483,12 @@ start_call_recording:
       default: true
       selector:
         boolean:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 stop_call_recording:
   name: Stop Call Recording
@@ -356,6 +497,12 @@ stop_call_recording:
     call_id:
       name: Call ID
       description: ID of the call to stop recording. Uses the current live call if omitted.
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -375,6 +522,12 @@ show_history:
     text:
       name: Search Text
       description: Optional text to filter the history panel.
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -401,6 +554,12 @@ get_call_history:
           options:
             - "all"
             - "missed"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 get_call_history_item:
   name: Get Call History Item
@@ -412,6 +571,12 @@ get_call_history_item:
       name: Item ID
       description: The call ID to look up.
       required: true
+      selector:
+        text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
       selector:
         text:
 
@@ -434,6 +599,12 @@ start_im:
           options:
             - "sip"
             - "xmpp"
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 start_screen_share:
   name: Start Screen Share
@@ -447,10 +618,23 @@ start_screen_share:
       required: true
       selector:
         object:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 start_collab:
   name: Start Conference
   description: Start a Collaboration meeting as host (Bria 6.2.0+).
+  fields:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
 
 join_collab:
   name: Join Conference
@@ -462,3 +646,10 @@ join_collab:
       required: true
       selector:
         text:
+    machine:
+      name: Computer
+      description: Name of the Bria computer to use (as set under Configure). Optional; by default the computer with the current call, or the one you used last.
+      example: Laptop
+      selector:
+        text:
+

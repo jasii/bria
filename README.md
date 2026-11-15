@@ -28,6 +28,8 @@ If you run Bria on more than one computer (for example a desktop and a laptop), 
 - Actions go to the computer you are using: the one with the current call, otherwise the one that last had a call or presence change. `answer_call` goes to the computer where the call is ringing.
 - Presence changes go to every connected computer.
 - Voicemail and missed calls are not double-counted when the same account is signed in on both.
+- Every service accepts an optional `machine` field (the computer's name) to pick a computer explicitly. `sign_in`, `sign_out`, `exit` and `check_voicemail` require it when there is more than one computer.
+- `get_contact`, `get_call_history` and `get_call_history_item` return their results as response data (and still fire the `bria_contact_lookup` / `bria_call_history` events).
 
 Give each computer all the addresses that reach it, one per line, LAN first and then Tailscale (for example `192.168.1.50` and `100.64.12.34`). An address may include a port (`host:9003`) if that Bria uses a different one. Port and certificate verification for the whole entry are under **⋮ → Reconfigure**.
 

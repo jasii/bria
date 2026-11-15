@@ -293,6 +293,24 @@
     },
     "not_connected": {
       "message": "No Bria computer is connected."
+    },
+    "not_configured": {
+      "message": "Bria is not set up or not loaded."
+    },
+    "unknown_machine": {
+      "message": "No Bria computer is called {machine}."
+    },
+    "several_entries": {
+      "message": "Several Bria entries are set up; add the machine field to say which computer to use."
+    },
+    "machine_not_connected": {
+      "message": "Bria on {machine} is not connected."
+    },
+    "machine_required": {
+      "message": "This Bria entry has several computers; add the machine field to say which one."
+    },
+    "no_active_call": {
+      "message": "There is no matching call."
     }
   }
 }

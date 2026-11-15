@@ -92,6 +92,16 @@ class BriaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- routing ---------------------------------------------------------------
 
+    def machine(self, machine_id: str) -> BriaMachine | None:
+        return next((m for m in self.machines if m.id == machine_id), None)
+
+    def find_machine(self, name_or_id: str) -> BriaMachine | None:
+        """Match a service's ``machine`` field by name (case-insensitive) or ID."""
+        wanted = name_or_id.strip().casefold()
+        return next(
+            (m for m in self.machines if wanted in (m.name.casefold(), m.id.casefold())), None
+        )
+
     @property
     def connected_machines(self) -> list[BriaMachine]:
         return [m for m in self.machines if m.connected]

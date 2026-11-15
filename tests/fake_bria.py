@@ -15,6 +15,7 @@ Plain ``ws://`` over localhost. TLS handling is tested separately.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 import xml.etree.ElementTree as ET
 
@@ -124,10 +125,13 @@ class FakeBria:
         await self._server.start_server()
 
     async def stop(self) -> None:
+        # Bounded: a client that is mid-handshake or reconnecting must not hang teardown.
         for ws in list(self._sockets):
-            await ws.close()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(ws.close(), 1)
         if self._server is not None:
-            await self._server.close()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._server.close(), 2)
 
     async def drop_clients(self) -> None:
         """Close every client connection (simulates Bria quitting)."""

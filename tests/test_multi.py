@@ -237,3 +237,62 @@ async def test_reconfigure(hass: HomeAssistant, fake_bria: FakeBria, setup_bria)
     assert entry.data["verify_ssl"] is False
     await hass.async_block_till_done()
     await wait_ready(entry)
+
+
+# -- service routing ------------------------------------------------------------------
+
+
+async def test_machine_field_routes_and_validates(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, two_machines
+) -> None:
+    from homeassistant.exceptions import ServiceValidationError
+
+    await hass.services.async_call(DOMAIN, "place_call", {"number": "100", "machine": "laptop"}, blocking=True)
+    assert laptop.requests_for("call") and not fake_bria.requests_for("call")
+
+    with pytest.raises(ServiceValidationError, match="unknown_machine|No Bria computer"):
+        await hass.services.async_call(DOMAIN, "place_call", {"number": "1", "machine": "Kitchen"}, blocking=True)
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(DOMAIN, "end_call", {}, blocking=True)  # no call anywhere
+
+
+async def test_call_actions_follow_the_call(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, two_machines
+) -> None:
+    fake_bria.status_responses["call"] = ringing_call("3")
+    await fake_bria.push_event("call")
+    await _until(hass, lambda: hass.states.get(ON_CALL).state == "on")
+    await hass.services.async_call(DOMAIN, "hold_call", {"call_id": "3"}, blocking=True)
+    assert fake_bria.requests_for("hold")[-1].root.findtext("callId") == "3"
+    assert not laptop.requests_for("hold")
+
+
+async def test_app_control_needs_machine_with_two(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, point_at_fake: None
+) -> None:
+    from homeassistant.exceptions import ServiceValidationError
+
+    entry = v3_entry(
+        9002,
+        machine("Desktop", f"127.0.0.1:{fake_bria.port}"),
+        machine("Laptop", f"127.0.0.1:{laptop.port}"),
+        options={"allow_app_control": True},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await wait_ready(entry)
+    with pytest.raises(ServiceValidationError, match="machine_required|several computers"):
+        await hass.services.async_call(DOMAIN, "exit", {}, blocking=True)
+    await hass.services.async_call(DOMAIN, "exit", {"machine": "Desktop"}, blocking=True)
+    assert fake_bria.requests_for("exit") and not laptop.requests_for("exit")
+
+
+async def test_history_returns_response(
+    hass: HomeAssistant, fake_bria: FakeBria, laptop: FakeBria, two_machines
+) -> None:
+    result = await hass.services.async_call(
+        DOMAIN, "get_call_history", {"machine": "Laptop"}, blocking=True, return_response=True
+    )
+    assert result["machine"] == "Laptop"
+    assert isinstance(result["entries"], list)
+    assert laptop.status_types_requested().count("callHistory") >= 2
