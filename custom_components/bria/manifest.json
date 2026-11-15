@@ -1,0 +1,13 @@
+{
+  "domain": "bria",
+  "name": "Bria VoIP",
+  "codeowners": ["@jasii"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/jasii/bria",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/jasii/bria/issues",
+  "requirements": [],
+  "version": "2.0.0"
+}

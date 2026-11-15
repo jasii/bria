@@ -1,0 +1,464 @@
+set_presence:
+  name: Set Presence
+  description: Set the Bria presence status and optional text message.
+  fields:
+    status:
+      name: Status
+      description: The presence status to set.
+      required: true
+      selector:
+        select:
+          options:
+            - "available"
+            - "away"
+            - "busy"
+            - "doNotDisturb"
+            - "offline"
+    text:
+      name: Message
+      description: Optional presence text message shown to contacts.
+      selector:
+        text:
+
+place_call:
+  name: Place Call
+  description: Dial a phone number or SIP address using Bria.
+  fields:
+    number:
+      name: Number
+      description: The phone number or SIP address to call.
+      required: true
+      selector:
+        text:
+    suppress_gui:
+      name: Suppress GUI
+      description: Hide the Bria call window while the call is active.
+      default: false
+      selector:
+        boolean:
+
+answer_call:
+  name: Answer Call
+  description: Answer an incoming call. Uses the first active call if no ID is supplied.
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the specific call to answer (optional).
+      selector:
+        text:
+    with_video:
+      name: With Video
+      description: Answer with video enabled.
+      default: false
+      selector:
+        boolean:
+
+end_call:
+  name: End Call
+  description: Hang up an active call. Uses the first active call if no ID is supplied.
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the specific call to end (optional).
+      selector:
+        text:
+
+hold_call:
+  name: Hold Call
+  description: Place an active call on hold. Uses the first active call if no ID is supplied.
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the specific call to hold (optional).
+      selector:
+        text:
+
+resume_call:
+  name: Resume Call
+  description: Resume a held call. Uses the first active call if no ID is supplied.
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the specific call to resume (optional).
+      selector:
+        text:
+
+transfer_call:
+  name: Transfer Call (Blind)
+  description: Blind-transfer an active call to a number, or merge two live calls via transfer.
+  fields:
+    target_number:
+      name: Target Number
+      description: The phone number or SIP address to transfer to. Required unless transferring between two live calls.
+      selector:
+        text:
+    target_call_id:
+      name: Target Call ID
+      description: ID of the second active call to transfer to (for two-live-call merge via transfer).
+      selector:
+        text:
+    call_id:
+      name: Call ID
+      description: ID of the specific call to transfer (optional, uses first active call).
+      selector:
+        text:
+
+start_attended_transfer:
+  name: Start Attended Transfer
+  description: Start a consultative (attended) transfer. Call the target first, then use transfer_call to complete.
+  fields:
+    target_number:
+      name: Target Number
+      description: The number to start the consultative transfer to.
+      required: true
+      selector:
+        text:
+    call_id:
+      name: Call ID
+      description: ID of the call to transfer (optional, uses first active call).
+      selector:
+        text:
+
+merge_calls:
+  name: Merge Calls
+  description: Merge all active calls into a local conference (Bria 6.3.0+).
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the active (not-on-hold) call to use as the merge anchor.
+      required: true
+      selector:
+        text:
+
+set_call_options:
+  name: Set Call Options
+  description: Enable or disable call options. Only include the fields you want to change.
+  fields:
+    anonymous:
+      name: Anonymous Calling
+      description: Hide caller ID from recipients.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    letters_to_numbers:
+      name: Letters to Numbers
+      description: Automatically convert typed letters to numbers in the dial field.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    auto_answer:
+      name: Auto Answer
+      description: Automatically answer incoming calls.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    call_waiting:
+      name: Call Waiting
+      description: Show incoming calls when already on a call.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+
+bring_to_front:
+  name: Bring to Front
+  description: Bring the Bria application window to the foreground.
+  fields:
+    window:
+      name: Window
+      description: Which window to bring to front. Defaults to the main phone window.
+      default: "main"
+      selector:
+        select:
+          options:
+            - "main"
+            - "collab"
+
+sign_in:
+  name: Sign In
+  description: Sign in to Bria with your account credentials.
+  fields:
+    username:
+      name: Username
+      description: Your Bria account username.
+      required: true
+      selector:
+        text:
+    password:
+      name: Password
+      description: Your Bria account password.
+      required: true
+      selector:
+        text:
+          type: password
+
+sign_out:
+  name: Sign Out
+  description: Sign out from Bria.
+
+set_audio_properties:
+  name: Set Audio Properties
+  description: Change mute state and/or volume levels. Only include the fields you want to change.
+  fields:
+    mute:
+      name: Microphone Mute
+      description: Mute or unmute the local microphone.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    speaker_mute:
+      name: Speaker Mute
+      description: Mute or unmute local sound output.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    speaker:
+      name: Speaker Mode
+      description: Enable or disable speakerphone mode.
+      selector:
+        select:
+          options:
+            - "enabled"
+            - "disabled"
+    speaker_volume:
+      name: Speaker Volume
+      description: Speakerphone volume (0–100).
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    microphone_volume:
+      name: Microphone Volume
+      description: Microphone volume (0–100).
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+select_audio_devices:
+  name: Select Audio Devices
+  description: Set specific devices for audio input and output.
+  fields:
+    devices:
+      name: Devices
+      description: >
+        List of device objects, each with keys: name, id, type ("input"/"output"), role (e.g. "headset").
+      required: true
+      selector:
+        object:
+
+check_voicemail:
+  name: Check Voicemail
+  description: Dial the voicemail server for the specified account.
+  fields:
+    account_id:
+      name: Account ID
+      description: The account ID to check voicemail for (use Phone Account Status attributes to find IDs).
+      required: true
+      selector:
+        text:
+    suppress_gui:
+      name: Suppress GUI
+      description: Keep the Bria window in the background while placing the voicemail call.
+      default: true
+      selector:
+        boolean:
+
+get_contact:
+  name: Get Contact
+  description: >
+    Look up a contact by email address. Results are fired as a bria_contact_lookup event
+    on the HA event bus with the contact details.
+  fields:
+    email:
+      name: Email
+      description: The email address of the contact to look up.
+      required: true
+      selector:
+        text:
+
+exit:
+  name: Exit Bria
+  description: Exit the Bria application. Bria logs out and moves to the background (or asks the user if a call is active).
+
+send_dtmf:
+  name: Send DTMF
+  description: Send a DTMF digit during an active call.
+  fields:
+    digit:
+      name: Digit
+      description: The DTMF digit to send (0-9, *, #).
+      required: true
+      selector:
+        select:
+          options:
+            - "0"
+            - "1"
+            - "2"
+            - "3"
+            - "4"
+            - "5"
+            - "6"
+            - "7"
+            - "8"
+            - "9"
+            - "*"
+            - "#"
+    tone:
+      name: Tone
+      description: Whether to start or stop the DTMF tone.
+      default: "start"
+      selector:
+        select:
+          options:
+            - "start"
+            - "stop"
+
+start_call_recording:
+  name: Start Call Recording
+  description: Start recording an active call.
+  fields:
+    filename:
+      name: Filename
+      description: Target filename (no extension). Bria appends the extension automatically.
+      required: true
+      selector:
+        text:
+    call_id:
+      name: Call ID
+      description: ID of the call to record. Uses the current live call if omitted.
+      selector:
+        text:
+    suppress_popup:
+      name: Suppress Popup
+      description: Hide the recording-stopped popup when recording ends.
+      default: true
+      selector:
+        boolean:
+
+stop_call_recording:
+  name: Stop Call Recording
+  description: Stop an active call recording.
+  fields:
+    call_id:
+      name: Call ID
+      description: ID of the call to stop recording. Uses the current live call if omitted.
+      selector:
+        text:
+
+show_history:
+  name: Show History
+  description: Bring the Bria History panel to the front.
+  fields:
+    history_type:
+      name: Type
+      description: Which calls to show.
+      default: "all"
+      selector:
+        select:
+          options:
+            - "all"
+            - "missed"
+    text:
+      name: Search Text
+      description: Optional text to filter the history panel.
+      selector:
+        text:
+
+get_call_history:
+  name: Get Call History
+  description: >
+    Fetch recent call history. Results are fired as a bria_call_history event
+    on the HA event bus with an "entries" list.
+  fields:
+    count:
+      name: Count
+      description: Number of recent calls to retrieve.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 100
+    entry_type:
+      name: Entry Type
+      description: Which call types to include.
+      default: "all"
+      selector:
+        select:
+          options:
+            - "all"
+            - "missed"
+
+get_call_history_item:
+  name: Get Call History Item
+  description: >
+    Fetch a single call history entry by ID. Result is fired as a bria_call_history
+    event on the HA event bus with an "entries" list containing the single item.
+  fields:
+    item_id:
+      name: Item ID
+      description: The call ID to look up.
+      required: true
+      selector:
+        text:
+
+start_im:
+  name: Start IM Session
+  description: Open the IM window in Bria and start a chat to the specified address.
+  fields:
+    address:
+      name: Address
+      description: The SIP address or XMPP JID to chat with.
+      required: true
+      selector:
+        text:
+    im_type:
+      name: Protocol
+      description: The IM protocol to use.
+      default: "sip"
+      selector:
+        select:
+          options:
+            - "sip"
+            - "xmpp"
+
+start_screen_share:
+  name: Start Screen Share
+  description: Prompt the user to choose a window/monitor to share, then start screenshare.
+  fields:
+    invitees:
+      name: Invitees
+      description: >
+        List of invitee objects, each with keys: address (SIP address or XMPP JID)
+        and type ("simple" for SIP, "xmpp" for XMPP).
+      required: true
+      selector:
+        object:
+
+start_collab:
+  name: Start Conference
+  description: Start a Collaboration meeting as host (Bria 6.2.0+).
+
+join_collab:
+  name: Join Conference
+  description: Join someone else's Collaboration meeting as a participant (Bria 6.2.0+).
+  fields:
+    collab_url:
+      name: Conference URL
+      description: The conference URL to join (use Get Contact to retrieve).
+      required: true
+      selector:
+        text:

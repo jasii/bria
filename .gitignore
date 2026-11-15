@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+
+# Local planning notes (contain private network details)
+.ai/tasks/

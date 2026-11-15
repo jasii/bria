@@ -1,0 +1,14 @@
+# Read by the conductor and agents. Edit by hand or with repo-new.
+[repo]
+name = "bria"
+forgejo = "projects/bria"
+github = ""
+remote = "forgejo"
+primary = "forgejo"
+created = "2026-11-14"
+
+[deploy]
+enabled = false
+komodo_stack = ""      # Komodo stack, for the default deploy
+ship = ""              # or a project ship SKILL.md (path from the git root) that commits + deploys its own way
+auto_deploy = false    # true: conductor may deploy without asking

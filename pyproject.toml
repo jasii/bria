@@ -1,0 +1,17 @@
+[project]
+name = "ha-bria"
+version = "2.0.0"
+description = "Home Assistant custom integration for the Bria Desktop softphone API"
+requires-python = ">=3.14.2"
+
+[dependency-groups]
+dev = [
+    # Pinned to the newest harness available. It bundles homeassistant==2026.10.4;
+    # the live install is Core 2026.11.1. Bump when a 2026.11 harness is published.
+    "pytest-homeassistant-custom-component==0.13.375",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
