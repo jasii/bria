@@ -129,6 +129,13 @@ STABLE_CONNECTION = 30.0  # a connection that lasted this long resets the backof
 HISTORY_COUNT = 50
 TEST_TIMEOUT = 5.0
 
+# Events that never trigger a status request, as in the original integration
+# (it listened for "voicemail" while Bria sends "voiceMail", so it never
+# refreshed on them). Bria sends a voiceMail event about once a minute, and
+# answering each one with a status request is suspected of stopping Bria from
+# alerting on incoming calls. Voicemail is still read once on connect.
+IGNORED_EVENTS = frozenset({STATUS_VOICEMAIL.lower()})
+
 _DEFAULT_DATA: dict[str, Any] = {
     "connected": False,
     "presence_status": None,
@@ -483,6 +490,9 @@ class BriaMachine:
     @callback
     def _on_event(self, event_type: str) -> None:
         etype = event_type.lower()
+        if etype in IGNORED_EVENTS:
+            _LOGGER.debug("Not refreshing on Bria event %s", event_type)
+            return
         if etype == STATUS_ACCOUNT:
             refresh: Callable[[], Awaitable[None]] | None = self._refresh_accounts
         else:
