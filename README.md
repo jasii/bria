@@ -58,6 +58,10 @@ New-NetFirewallRule -DisplayName "Bria API from HA" -Direction Inbound -Protocol
 
 `sign_in` takes a password in plain service data, which is visible in automation YAML and traces. Store it with `!secret`.
 
+## Known limitations
+
+- **The voicemail count only updates when the integration connects to Bria.** Bria sends a voicemail event about once a minute. Answering each one with a voicemail status request stopped Bria from alerting on incoming calls: the first unanswered call rang, and later calls never reached Bria. The integration therefore ignores those events, as the original version did. The count is read on connect; reloading the integration refreshes it. Seen with Bria 6.8.7.1 on Windows.
+
 ## Upgrading from 1.x
 
 The device is now identified by the config entry instead of the Bria machine's address, so the integration can follow Bria across addresses. Existing devices, entity IDs and history are moved over automatically on first start. Entities now show as unavailable while Bria is disconnected. The Call History sensor's state is now the time of the most recent call; the number of calls is in its `count` attribute. Screen share is off by default for new installs, because Bria 6.8 rejects screen share status requests. Call recording, sign in, sign out and exit are now refused until you allow them under the Safety options.

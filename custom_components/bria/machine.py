@@ -132,8 +132,10 @@ TEST_TIMEOUT = 5.0
 # Events that never trigger a status request, as in the original integration
 # (it listened for "voicemail" while Bria sends "voiceMail", so it never
 # refreshed on them). Bria sends a voiceMail event about once a minute, and
-# answering each one with a status request is suspected of stopping Bria from
-# alerting on incoming calls. Voicemail is still read once on connect.
+# answering each one with a status request stopped Bria from alerting on
+# incoming calls after the first unanswered one (confirmed live on Bria
+# 6.8.7.1, Windows). Voicemail is still read once on connect. See README,
+# "Known limitations".
 IGNORED_EVENTS = frozenset({STATUS_VOICEMAIL.lower()})
 
 _DEFAULT_DATA: dict[str, Any] = {
